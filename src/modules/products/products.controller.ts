@@ -21,27 +21,31 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   private mapProduct(p: any) {
+    if (!p) return null;
     const isAct = p.isActive !== false && p.status !== 'inactive';
-    const originalPriceVal = p.originalPrice || p.price || 0;
-    const discountVal = p.discount || (originalPriceVal - p.price > 0 ? Math.round(((originalPriceVal - p.price) / originalPriceVal) * 100) : 0);
+    const priceVal = p.price || 0;
+    const originalPriceVal = p.originalPrice || priceVal;
+    const discountVal = p.discount || (originalPriceVal - priceVal > 0 ? Math.round(((originalPriceVal - priceVal) / originalPriceVal) * 100) : 0);
+    const idVal = p._id ? p._id.toString() : '';
     const skuVal = p.sku || `SHS-${Math.floor(1000 + Math.random() * 9000)}`;
-    const slugVal = p.slug || p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const nameVal = p.name || 'Unnamed Product';
+    const slugVal = p.slug || nameVal.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const imgVal = p.img || (p.images && p.images.length > 0 ? p.images[0] : 'images/product.png');
     const imgsVal = p.imgs && p.imgs.length > 0 ? p.imgs : (p.images && p.images.length > 0 ? p.images : ['images/product.png']);
 
     return {
-      id: p._id.toString(),
-      _id: p._id.toString(),
-      name: p.name,
+      id: idVal,
+      _id: idVal,
+      name: nameVal,
       sku: skuVal,
       brand: p.brand || 'SANT HARI SINGH',
       slug: slugVal,
       subtitle: p.subtitle || '',
-      category: p.category,
-      price: p.price,
+      category: p.category || 'other',
+      price: priceVal,
       originalPrice: originalPriceVal,
       discount: discountVal,
-      stock: p.stock,
+      stock: p.stock || 0,
       rating: p.rating || 5.0,
       reviews: p.reviews || p.reviewCount || 0,
       isFeatured: p.isFeatured || false,
@@ -57,12 +61,12 @@ export class ProductsController {
       subCategory: p.subCategory || '',
       sizes: p.sizes && p.sizes.length > 0 ? p.sizes : ['Standard'],
       selectedSize: p.selectedSize || 'Standard',
-      variants: p.variants && p.variants.length > 0 ? p.variants : [{ size: 'Standard', price: p.price, stock: p.stock, sku: skuVal }],
+      variants: p.variants && p.variants.length > 0 ? p.variants : [{ size: 'Standard', price: priceVal, stock: p.stock || 0, sku: skuVal }],
       tags: p.tags || [],
       seo: p.seo || {
-        title: `${p.name} | Sant Hari Singh`,
-        description: `Buy ${p.name} online.`,
-        keywords: [p.name.toLowerCase()],
+        title: `${nameVal} | Sant Hari Singh`,
+        description: `Buy ${nameVal} online.`,
+        keywords: [nameVal.toLowerCase()],
         slug: slugVal,
         ogImage: imgVal
       }

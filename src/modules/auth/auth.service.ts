@@ -63,37 +63,49 @@ export class AuthService {
 
   // ─── Login ──────────────────────────────────────────────────────────────────
   async login(loginDto: LoginDto) {
-    const user = await this.usersService.findByEmail(loginDto.email);
-    if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+    try {
+      const user = await this.usersService.findByEmail(loginDto.email);
+      if (!user) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      if (!user.password) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+
+      if (!user.isActive) {
+        throw new UnauthorizedException('Account is deactivated');
+      }
+
+      const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+      return {
+        success: true,
+        message: 'Login successful',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          avatar: user.avatar,
+          phone: user.phone,
+        },
+        token: tokens.accessToken,
+        ...tokens,
+      };
+    } catch (error) {
+      console.error('❌ Login Error:', error);
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException || error instanceof ConflictException) {
+        throw error;
+      }
+      throw new BadRequestException(`Login failed: ${error.message || error}`);
     }
-
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-
-    if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
-    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
-
-    return {
-      success: true,
-      message: 'Login successful',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        phone: user.phone,
-      },
-      token: tokens.accessToken,
-      ...tokens,
-    };
   }
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
@@ -202,13 +214,16 @@ export class AuthService {
   private async generateTokens(userId: string, email: string, role: string) {
     const payload = { sub: userId, email, role };
 
+    const secret = this.configService.get<string>('JWT_SECRET') || 'lokeshkumar';
+    const refreshSecret = this.configService.get<string>('JWT_REFRESH_SECRET') || 'lokeshkumar';
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: this.configService.get<string>('ACCESS_TOKEN_TTL', '15m') as StringValue,
+        secret: secret,
+        expiresIn: this.configService.get<string>('ACCESS_TOKEN_TTL', '30d') as StringValue,
       }),
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        secret: refreshSecret,
         expiresIn: this.configService.get<string>('REFRESH_TOKEN_TTL', '7d') as StringValue,
       }),
     ]);
