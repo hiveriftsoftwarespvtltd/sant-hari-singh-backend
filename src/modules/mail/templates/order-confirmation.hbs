@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Order Confirmed</title>
+</head>
+<body style="font-family: Arial, sans-serif; background: #f4f4f4; padding: 30px;">
+  <div style="max-width: 600px; margin: auto; background: #fff; border-radius: 10px; padding: 30px;">
+    <h1 style="color: #c8973a;">✅ Order Confirmed!</h1>
+    <p>Hi <strong>{{name}}</strong>, your order has been placed successfully.</p>
+    <p><strong>Order ID:</strong> #{{orderId}}</p>
+    <table style="width:100%; border-collapse:collapse; margin-top:16px;">
+      <thead>
+        <tr style="background:#f8f0e0;">
+          <th style="padding:8px; text-align:left; border:1px solid #ddd;">Product</th>
+          <th style="padding:8px; text-align:right; border:1px solid #ddd;">Qty</th>
+          <th style="padding:8px; text-align:right; border:1px solid #ddd;">Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each items}}
+        <tr>
+          <td style="padding:8px; border:1px solid #ddd;">{{this.name}}</td>
+          <td style="padding:8px; text-align:right; border:1px solid #ddd;">{{this.quantity}}</td>
+          <td style="padding:8px; text-align:right; border:1px solid #ddd;">₹{{this.price}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f8f0e0;">
+          <td colspan="2" style="padding:8px; font-weight:bold; border:1px solid #ddd;">Total</td>
+          <td style="padding:8px; text-align:right; font-weight:bold; border:1px solid #ddd;">₹{{totalAmount}}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <p style="margin-top:20px; color:#666;">We'll notify you when your order is shipped.</p>
+    <p style="margin-top:30px; color:#999; font-size:12px;">Thank you for shopping with Saint Hari 🙏</p>
+  </div>
+</body>
+</html>
