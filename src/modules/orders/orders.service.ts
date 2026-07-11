@@ -327,6 +327,16 @@ export class OrdersService implements OnModuleInit {
       order.status = 'confirmed' as any;
       order.paymentStatus = PaymentStatus.PAID;
       order.paymentId = trackingId;
+      
+      // Update paymentMethod with actual CCAvenue details (e.g. UPI, Net Banking - SBI)
+      const mode = params.payment_mode; 
+      const card = params.card_name;     
+      if (mode) {
+        order.paymentMethod = card ? `CCAvenue (${mode} - ${card})` : `CCAvenue (${mode})`;
+      } else {
+        order.paymentMethod = 'CCAvenue';
+      }
+      
       await order.save();
       return {
         success: true,
