@@ -248,7 +248,7 @@ export class OrdersService implements OnModuleInit {
       : 'https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction';
 
     // Backend redirect URL
-    const backendUrl = process.env.SERVER_BASE_URL || 'http://localhost:9006';
+    const backendUrl = process.env.SERVER_BASE_URL || 'https://santharisingh.com/santharisingh_api';
     const redirectUrl = `${backendUrl}/api/orders/ccavenue/redirect`;
 
     const billingAddress = orderPayload.shippingAddress || {};
@@ -321,7 +321,7 @@ export class OrdersService implements OnModuleInit {
       throw new NotFoundException('Order not found');
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://santharisingh.com';
 
     if (orderStatus === 'Success') {
       order.status = 'confirmed' as any;
