@@ -81,18 +81,22 @@ export class MailService {
   }
 
 
-  async sendConsultationEmail(name: string, phone: string, concern: string): Promise<void> {
+  async sendConsultationEmail(name: string, age: string, phone: string, concern: string, paymentId: string): Promise<void> {
     await this.mailerService.sendMail({
       to: 'vineetvineet8006@gmail.com',
-      subject: 'New Free Ayurvedic Consultation Request! 🙏',
+      subject: 'New Paid Ayurvedic Consultation Request! 💳',
       html: `
         <div style="font-family: Arial, sans-serif; padding: 25px; max-width: 600px; border: 2px solid #0C3E26; border-radius: 12px; background: #FAF9F6;">
           <h2 style="color: #0C3E26; font-family: 'Georgia', serif; border-bottom: 2px solid #0C3E26; padding-bottom: 10px; margin-top: 0;">New Consultation Request</h2>
-          <p style="font-size: 14px; color: #2F3C34;">A user has submitted a request for a free Ayurvedic consultation from the website:</p>
+          <p style="font-size: 14px; color: #2F3C34;">A user has submitted a paid request for a free Ayurvedic consultation from the website:</p>
           <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px;">
             <tr>
               <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE; width: 35%;">Full Name:</td>
               <td style="padding: 10px; border: 1px solid #D1E0D5; color: #1A231E;">${name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE;">Age:</td>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; color: #1A231E;">${age}</td>
             </tr>
             <tr>
               <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE;">Phone Number:</td>
@@ -101,6 +105,14 @@ export class MailService {
             <tr>
               <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE;">Health Concern:</td>
               <td style="padding: 10px; border: 1px solid #D1E0D5; color: #1A231E;">${concern}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE;">Payment Status:</td>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; color: #27AE60; font-weight: bold;">Paid (₹199) ✅</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; font-weight: bold; background: #EBF3EE;">Payment ID:</td>
+              <td style="padding: 10px; border: 1px solid #D1E0D5; color: #1A231E; font-weight: bold;">${paymentId}</td>
             </tr>
           </table>
           <p style="font-size: 12px; color: #888; margin-top: 25px; border-top: 1px solid #D1E0D5; padding-top: 10px;">

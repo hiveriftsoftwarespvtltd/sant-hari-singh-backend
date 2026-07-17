@@ -15,8 +15,8 @@ export class AppController {
   }
 
   @Post('consultation')
-  async bookConsultation(@Body() body: { name: string; phone: string; concern: string }) {
-    await this.mailService.sendConsultationEmail(body.name, body.phone, body.concern);
+  async bookConsultation(@Body() body: { name: string; age: string; phone: string; concern: string; paymentId: string }) {
+    await this.mailService.sendConsultationEmail(body.name, body.age, body.phone, body.concern, body.paymentId);
     return { success: true, message: 'Consultation request sent successfully' };
   }
 

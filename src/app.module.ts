@@ -20,13 +20,13 @@ import { RawHerbSubCategoriesModule } from './modules/raw-herb-subcategories/raw
 
 @Module({
   imports: [
-    // ✅ Config Module - loads .env globally
+    // Config Module - loads .env globally
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
     }),
 
-    // ✅ Serve static uploads (images) — works on localhost AND server
+    //  Serve static uploads (images) — works on localhost AND server
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
@@ -35,17 +35,17 @@ import { RawHerbSubCategoriesModule } from './modules/raw-herb-subcategories/raw
       },
     }),
 
-    // ✅ MongoDB Connection
+    // MongoDB Connection
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGO_URI'),
         connectionFactory: (connection) => {
           connection.on('connected', () => {
-            console.log('✅ MongoDB connected successfully');
+            console.log(' MongoDB connected successfully');
           });
           connection.on('error', (err) => {
-            console.error('❌ MongoDB connection error:', err);
+            console.error(' MongoDB connection error:', err);
           });
           return connection;
         },

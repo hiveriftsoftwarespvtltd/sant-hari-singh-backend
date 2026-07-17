@@ -25,9 +25,9 @@ export class AppService implements OnModuleInit {
       await this.seedCategories();
       await this.seedProducts();
       await this.seedAdminUser();
-      console.log('✅ Database check completed.');
+      console.log(' Database check completed.');
     } catch (err) {
-      console.error('❌ Database seeding error:', err);
+      console.error(' Database seeding error:', err);
     }
   }
 
@@ -50,9 +50,9 @@ export class AppService implements OnModuleInit {
           count: cat.count,
         });
       }
-      console.log(`✅ Successfully seeded ${data.length} categories.`);
+      console.log(` Successfully seeded ${data.length} categories.`);
     } else {
-      console.log('⚠️ categories.json file not found at: ' + path);
+      console.log(' categories.json file not found at: ' + path);
     }
   }
 
