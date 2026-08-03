@@ -42,12 +42,12 @@ export class ShiprocketService {
   ) {}
 
   /**
-   * Helper to format a single product to Shiprocket SRC format matching exact target schema
+   * Helper to format a single product to Shiprocket SRC format matching exact target sample schema
    */
   private formatProduct(product: any, baseUrl: string) {
     const numericProductId = toNumericId(product.id || product._id);
     const productPrice = String(product.price || 0);
-    const compareAtPrice = product.originalPrice ? String(product.originalPrice) : null;
+    const compareAtPrice = product.originalPrice ? String(product.originalPrice) : String(product.price || 0);
     const quantity = typeof product.stock === 'number' ? product.stock : 100;
     const sku = product.sku || `SHS-${numericProductId.toString().slice(-4)}`;
     const title = product.name || 'Untitled Product';
@@ -68,22 +68,7 @@ export class ShiprocketService {
           : `${baseUrl}${uniqueImages[0].startsWith('/') ? uniqueImages[0] : '/' + uniqueImages[0]}`)
       : `${baseUrl}/images/product.png`;
 
-    const formattedImages = uniqueImages.map((imgSrc, index) => {
-      let fullUrl = imgSrc;
-      if (!imgSrc.startsWith('http://') && !imgSrc.startsWith('https://')) {
-        const cleanPath = imgSrc.startsWith('/') ? imgSrc : `/${imgSrc}`;
-        fullUrl = `${baseUrl}${cleanPath}`;
-      }
-      return {
-        id: index + 1,
-        product_id: numericProductId,
-        src: fullUrl,
-        position: index + 1,
-        updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
-      };
-    });
-
-    // Handle variants according to exact example structure
+    // Handle variants according to exact target sample structure
     let variants: any[] = [];
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       variants = product.variants.map((v: any, idx: number) => {
@@ -103,16 +88,16 @@ export class ShiprocketService {
           price: String(v.price || productPrice),
           compare_at_price: v.originalPrice ? String(v.originalPrice) : compareAtPrice,
           sku: v.sku || `${sku}-${idx + 1}`,
-          quantity: typeof v.stock === 'number' ? v.stock : quantity,
           created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
           updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
           taxable: true,
-          option_values: {
-            Title: varTitle,
-          },
+          quantity: typeof v.stock === 'number' ? v.stock : quantity,
           grams: v.grams || (v.weight ? Number(v.weight) * 1000 : 500),
           image: {
             src: variantImgSrc,
+          },
+          option_values: {
+            Title: varTitle,
           },
           weight: v.weight ? Number(v.weight) : 0.5,
           weight_unit: 'kg',
@@ -126,16 +111,16 @@ export class ShiprocketService {
           price: productPrice,
           compare_at_price: compareAtPrice,
           sku: sku,
-          quantity: quantity,
           created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
           updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
           taxable: true,
-          option_values: {
-            Title: 'Standard',
-          },
+          quantity: quantity,
           grams: 500,
           image: {
             src: mainImageSrc,
+          },
+          option_values: {
+            Title: 'Standard',
           },
           weight: 0.5,
           weight_unit: 'kg',
@@ -165,16 +150,15 @@ export class ShiprocketService {
         : (product.category || 'Ayurveda'),
       status: product.isActive !== false ? 'active' : 'draft',
       variants: variants,
+      options: options,
       image: {
         src: mainImageSrc,
       },
-      images: formattedImages,
-      options: options,
     };
   }
 
   /**
-   * GET /shiprocket/products?page=1&limit=100 OR ?collection_id=1234&page=1&limit=100
+   * GET /shiprocket/products?page=1&limit=100 OR ?collection_id=liver-care&page=1&limit=100
    */
   async getProducts(collectionId?: string, pageParam: number = 1, limitParam: number = 100, hostHeader?: string) {
     const page = Math.max(1, Number(pageParam) || 1);
