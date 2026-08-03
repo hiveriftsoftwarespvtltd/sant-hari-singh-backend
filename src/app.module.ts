@@ -17,6 +17,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { RawHerbSubCategoriesModule } from './modules/raw-herb-subcategories/raw-herb-subcategories.module';
+import { ShiprocketModule } from './modules/shiprocket/shiprocket.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { RawHerbSubCategoriesModule } from './modules/raw-herb-subcategories/raw
     CategoriesModule,
     CouponsModule,
     RawHerbSubCategoriesModule,
+    ShiprocketModule,
   ],
   controllers: [AppController],
   providers: [AppService],
