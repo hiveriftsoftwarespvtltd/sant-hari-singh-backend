@@ -225,9 +225,9 @@ export class ShiprocketService {
   }
 
   /**
-   * GET /shiprocket/collections?page=1&limit=100
+   * GET /shiprocket/collections?page=1&limit=100 matching exact target example schema
    */
-  async getCollections(pageParam: number = 1, limitParam: number = 100) {
+  async getCollections(pageParam: number = 1, limitParam: number = 100, hostHeader?: string) {
     const page = Math.max(1, Number(pageParam) || 1);
     const limit = Math.min(250, Math.max(1, Number(limitParam) || 100));
     const skip = (page - 1) * limit;
@@ -237,20 +237,30 @@ export class ShiprocketService {
       this.categoryModel.countDocuments({ enabled: { $ne: false } }),
     ]);
 
-    // Format categories as Shiprocket collections with numeric IDs
+    const baseUrl = hostHeader ? `https://${hostHeader}` : 'https://santharisingh.com';
+
+    // Format categories as Shiprocket collections matching target example schema exactly
     const collections = dbCategories.map((cat) => {
       const numericCatId = toNumericId(cat.id || (cat as any)._id || cat.slug);
+
+      let imgSrc = (cat as any).img;
+      if (!imgSrc || typeof imgSrc !== 'string' || imgSrc.trim() === '') {
+        imgSrc = '/images/category.png';
+      }
+      if (!imgSrc.startsWith('http://') && !imgSrc.startsWith('https://')) {
+        imgSrc = `${baseUrl}${imgSrc.startsWith('/') ? imgSrc : '/' + imgSrc}`;
+      }
+
       return {
         id: numericCatId,
-        title: cat.name || 'Category',
-        handle: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
         updated_at: (cat as any).updatedAt ? new Date((cat as any).updatedAt).toISOString() : new Date().toISOString(),
         body_html: `<p>${cat.name || ''}</p>`,
-        published_at: (cat as any).createdAt ? new Date((cat as any).createdAt).toISOString() : new Date().toISOString(),
-        sort_order: 'best-selling',
-        template_suffix: null,
-        disjunctive: false,
-        rules: [],
+        handle: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
+        image: {
+          src: imgSrc,
+        },
+        title: cat.name || 'Category',
+        created_at: (cat as any).createdAt ? new Date((cat as any).createdAt).toISOString() : new Date().toISOString(),
       };
     });
 

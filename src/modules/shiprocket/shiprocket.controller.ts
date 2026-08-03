@@ -28,8 +28,9 @@ export class ShiprocketController {
   async getCollections(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Headers('host') hostHeader?: string,
   ) {
-    return this.shiprocketService.getCollections(page, limit);
+    return this.shiprocketService.getCollections(page, limit, hostHeader);
   }
 
   /**
