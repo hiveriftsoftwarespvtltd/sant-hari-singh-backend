@@ -42,7 +42,7 @@ export class ShiprocketService {
   ) {}
 
   /**
-   * Helper to format a single product to Shiprocket SRC format with numeric IDs
+   * Helper to format a single product to Shiprocket SRC format matching exact target schema
    */
   private formatProduct(product: any, baseUrl: string) {
     const numericProductId = toNumericId(product.id || product._id);
@@ -62,6 +62,12 @@ export class ShiprocketService {
     ];
     const uniqueImages = Array.from(new Set(rawImages.filter((img) => typeof img === 'string' && img.trim() !== '')));
 
+    const mainImageSrc = uniqueImages.length > 0
+      ? (uniqueImages[0].startsWith('http://') || uniqueImages[0].startsWith('https://')
+          ? uniqueImages[0]
+          : `${baseUrl}${uniqueImages[0].startsWith('/') ? uniqueImages[0] : '/' + uniqueImages[0]}`)
+      : `${baseUrl}/images/product.png`;
+
     const formattedImages = uniqueImages.map((imgSrc, index) => {
       let fullUrl = imgSrc;
       if (!imgSrc.startsWith('http://') && !imgSrc.startsWith('https://')) {
@@ -77,80 +83,71 @@ export class ShiprocketService {
       };
     });
 
-    // Handle variants
+    // Handle variants according to exact example structure
     let variants: any[] = [];
     if (Array.isArray(product.variants) && product.variants.length > 0) {
       variants = product.variants.map((v: any, idx: number) => {
         const variantId = v._id || v.id ? toNumericId(v._id || v.id) : (numericProductId * 10 + idx + 1);
+        const varTitle = v.title || v.name || v.size || 'Standard';
+        
+        let variantImgSrc = mainImageSrc;
+        if (v.image && typeof v.image === 'string' && v.image.trim() !== '') {
+          variantImgSrc = v.image.startsWith('http://') || v.image.startsWith('https://')
+            ? v.image
+            : `${baseUrl}${v.image.startsWith('/') ? v.image : '/' + v.image}`;
+        }
+
         return {
           id: variantId,
-          product_id: numericProductId,
-          title: v.title || v.name || v.size || `Variant ${idx + 1}`,
+          title: varTitle,
           price: String(v.price || productPrice),
-          sku: v.sku || `${sku}-${idx + 1}`,
-          position: idx + 1,
-          inventory_policy: 'deny',
           compare_at_price: v.originalPrice ? String(v.originalPrice) : compareAtPrice,
-          fulfillment_service: 'manual',
-          inventory_management: 'shiprocket',
-          option1: v.size || v.title || 'Default Title',
-          option2: null,
-          option3: null,
+          sku: v.sku || `${sku}-${idx + 1}`,
+          quantity: typeof v.stock === 'number' ? v.stock : quantity,
           created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
           updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
-          taxable: false,
-          barcode: v.barcode || '',
+          taxable: true,
+          option_values: {
+            Title: varTitle,
+          },
           grams: v.grams || (v.weight ? Number(v.weight) * 1000 : 500),
-          image_id: null,
+          image: {
+            src: variantImgSrc,
+          },
           weight: v.weight ? Number(v.weight) : 0.5,
           weight_unit: 'kg',
-          inventory_item_id: idx + 1,
-          quantity: typeof v.stock === 'number' ? v.stock : quantity,
-          inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
-          old_inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
-          requires_shipping: true,
         };
       });
     } else {
       variants = [
         {
           id: numericProductId * 10 + 1,
-          product_id: numericProductId,
-          title: 'Default Title',
+          title: 'Standard',
           price: productPrice,
-          sku: sku,
-          position: 1,
-          inventory_policy: 'deny',
           compare_at_price: compareAtPrice,
-          fulfillment_service: 'manual',
-          inventory_management: 'shiprocket',
-          option1: 'Default Title',
-          option2: null,
-          option3: null,
+          sku: sku,
+          quantity: quantity,
           created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
           updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
-          taxable: false,
-          barcode: '',
+          taxable: true,
+          option_values: {
+            Title: 'Standard',
+          },
           grams: 500,
-          image_id: null,
+          image: {
+            src: mainImageSrc,
+          },
           weight: 0.5,
           weight_unit: 'kg',
-          inventory_item_id: 1,
-          quantity: quantity,
-          inventory_quantity: quantity,
-          old_inventory_quantity: quantity,
-          requires_shipping: true,
         },
       ];
     }
 
+    const optionValues = Array.from(new Set(variants.map((v: any) => v.title)));
     const options = [
       {
-        id: 1,
-        product_id: numericProductId,
         name: 'Title',
-        position: 1,
-        values: variants.map((v: any) => v.title),
+        values: optionValues.length > 0 ? optionValues : ['Standard'],
       },
     ];
 
@@ -163,12 +160,15 @@ export class ShiprocketService {
       created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
       handle: handle,
       updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
-      status: product.isActive !== false ? 'active' : 'draft',
       tags: Array.isArray(product.tags) && product.tags.length > 0
         ? product.tags.join(', ')
         : (product.category || 'Ayurveda'),
-      images: formattedImages,
+      status: product.isActive !== false ? 'active' : 'draft',
       variants: variants,
+      image: {
+        src: mainImageSrc,
+      },
+      images: formattedImages,
       options: options,
     };
   }
