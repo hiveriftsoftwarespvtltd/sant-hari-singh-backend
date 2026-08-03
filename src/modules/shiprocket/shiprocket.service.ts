@@ -4,6 +4,34 @@ import { Model } from 'mongoose';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { Category, CategoryDocument } from '../categories/schemas/category.schema';
 
+/**
+ * Converts any string/ObjectId/number into a deterministic, unique positive Integer (Number)
+ */
+function toNumericId(val: any): number {
+  if (typeof val === 'number' && !isNaN(val) && val > 0) {
+    return Math.floor(val);
+  }
+  const str = String(val || '').trim();
+  if (/^\d+$/.test(str)) {
+    const parsed = parseInt(str, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  // Hex 24-char ObjectId
+  if (str.length >= 8) {
+    const hexSlice = str.slice(-8);
+    const parsedHex = parseInt(hexSlice, 16);
+    if (!isNaN(parsedHex) && parsedHex > 0) {
+      return parsedHex;
+    }
+  }
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) + 100000;
+}
+
 @Injectable()
 export class ShiprocketService {
   constructor(
@@ -14,14 +42,14 @@ export class ShiprocketService {
   ) {}
 
   /**
-   * Helper to format a single product to Shiprocket SRC format
+   * Helper to format a single product to Shiprocket SRC format with numeric IDs
    */
   private formatProduct(product: any, baseUrl: string) {
-    const productId = String(product._id || product.id || '');
+    const numericProductId = toNumericId(product.id || product._id);
     const productPrice = String(product.price || 0);
     const compareAtPrice = product.originalPrice ? String(product.originalPrice) : null;
     const quantity = typeof product.stock === 'number' ? product.stock : 100;
-    const sku = product.sku || `SKU-${productId.slice(-6).toUpperCase()}`;
+    const sku = product.sku || `SHS-${numericProductId.toString().slice(-4)}`;
     const title = product.name || 'Untitled Product';
     const handle = product.slug || title.toLowerCase().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '');
     const description = product.description || product.shortDescription || title;
@@ -41,8 +69,8 @@ export class ShiprocketService {
         fullUrl = `${baseUrl}${cleanPath}`;
       }
       return {
-        id: String(index + 1),
-        product_id: productId,
+        id: index + 1,
+        product_id: numericProductId,
         src: fullUrl,
         position: index + 1,
         updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
@@ -52,39 +80,42 @@ export class ShiprocketService {
     // Handle variants
     let variants: any[] = [];
     if (Array.isArray(product.variants) && product.variants.length > 0) {
-      variants = product.variants.map((v: any, idx: number) => ({
-        id: String(v._id || v.id || `${productId}_v${idx + 1}`),
-        product_id: productId,
-        title: v.title || v.name || v.size || `Variant ${idx + 1}`,
-        price: String(v.price || productPrice),
-        sku: v.sku || `${sku}-${idx + 1}`,
-        position: idx + 1,
-        inventory_policy: 'deny',
-        compare_at_price: v.originalPrice ? String(v.originalPrice) : compareAtPrice,
-        fulfillment_service: 'manual',
-        inventory_management: 'shiprocket',
-        option1: v.size || v.title || 'Default Title',
-        option2: null,
-        option3: null,
-        created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
-        updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
-        taxable: false,
-        barcode: v.barcode || '',
-        grams: v.grams || (v.weight ? Number(v.weight) * 1000 : 500),
-        image_id: null,
-        weight: v.weight ? Number(v.weight) : 0.5,
-        weight_unit: 'kg',
-        inventory_item_id: idx + 1,
-        quantity: typeof v.stock === 'number' ? v.stock : quantity,
-        inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
-        old_inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
-        requires_shipping: true,
-      }));
+      variants = product.variants.map((v: any, idx: number) => {
+        const variantId = v._id || v.id ? toNumericId(v._id || v.id) : (numericProductId * 10 + idx + 1);
+        return {
+          id: variantId,
+          product_id: numericProductId,
+          title: v.title || v.name || v.size || `Variant ${idx + 1}`,
+          price: String(v.price || productPrice),
+          sku: v.sku || `${sku}-${idx + 1}`,
+          position: idx + 1,
+          inventory_policy: 'deny',
+          compare_at_price: v.originalPrice ? String(v.originalPrice) : compareAtPrice,
+          fulfillment_service: 'manual',
+          inventory_management: 'shiprocket',
+          option1: v.size || v.title || 'Default Title',
+          option2: null,
+          option3: null,
+          created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
+          updated_at: product.updatedAt ? new Date(product.updatedAt).toISOString() : new Date().toISOString(),
+          taxable: false,
+          barcode: v.barcode || '',
+          grams: v.grams || (v.weight ? Number(v.weight) * 1000 : 500),
+          image_id: null,
+          weight: v.weight ? Number(v.weight) : 0.5,
+          weight_unit: 'kg',
+          inventory_item_id: idx + 1,
+          quantity: typeof v.stock === 'number' ? v.stock : quantity,
+          inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
+          old_inventory_quantity: typeof v.stock === 'number' ? v.stock : quantity,
+          requires_shipping: true,
+        };
+      });
     } else {
       variants = [
         {
-          id: `${productId}_v1`,
-          product_id: productId,
+          id: numericProductId * 10 + 1,
+          product_id: numericProductId,
           title: 'Default Title',
           price: productPrice,
           sku: sku,
@@ -115,8 +146,8 @@ export class ShiprocketService {
 
     const options = [
       {
-        id: '1',
-        product_id: productId,
+        id: 1,
+        product_id: numericProductId,
         name: 'Title',
         position: 1,
         values: variants.map((v: any) => v.title),
@@ -124,10 +155,10 @@ export class ShiprocketService {
     ];
 
     return {
-      id: productId,
+      id: numericProductId,
       title: title,
       body_html: `<p>${description}</p>`,
-      vendor: product.brand || 'Sant Hari Singh',
+      vendor: product.brand || 'SANT HARI SINGH',
       product_type: product.category || 'Ayurvedic',
       created_at: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
       handle: handle,
@@ -152,12 +183,28 @@ export class ShiprocketService {
 
     const filter: any = { isActive: true };
 
-    if (collectionId && collectionId.trim() !== '') {
-      filter.$or = [
-        { category: collectionId },
-        { subCategory: collectionId },
-        { slug: collectionId },
-      ];
+    if (collectionId && String(collectionId).trim() !== '') {
+      const strId = String(collectionId).trim();
+      const numId = toNumericId(strId);
+
+      // Find matching category to extract slug
+      const matchedCats = await this.categoryModel.find({
+        $or: [
+          { id: numId },
+          { slug: strId },
+          { name: new RegExp(strId, 'i') },
+        ],
+      }).exec();
+
+      const catSlugs = Array.from(new Set([strId, ...matchedCats.map((c) => c.slug)]));
+
+      const orConditions: any[] = [];
+      for (const s of catSlugs) {
+        orConditions.push({ category: s });
+        orConditions.push({ subCategory: s });
+        orConditions.push({ slug: s });
+      }
+      filter.$or = orConditions;
     }
 
     const [dbProducts, total] = await Promise.all([
@@ -190,11 +237,11 @@ export class ShiprocketService {
       this.categoryModel.countDocuments({ enabled: { $ne: false } }),
     ]);
 
-    // Format categories as Shiprocket collections
+    // Format categories as Shiprocket collections with numeric IDs
     const collections = dbCategories.map((cat) => {
-      const catId = String(cat._id || cat.id || cat.slug || '');
+      const numericCatId = toNumericId(cat.id || (cat as any)._id || cat.slug);
       return {
-        id: cat.slug || catId,
+        id: numericCatId,
         title: cat.name || 'Category',
         handle: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
         updated_at: (cat as any).updatedAt ? new Date((cat as any).updatedAt).toISOString() : new Date().toISOString(),
