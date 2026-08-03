@@ -36,9 +36,9 @@ async function bootstrap() {
     prefix: '/api/uploads',
   });
 
-  // Global prefix (excludes shiprocket routes so /shiprocket/products works with or without /api)
+  // Global prefix (excludes shiprocket routes so both /shiprocket/... and /api/shiprocket/... work)
   app.setGlobalPrefix('api', {
-    exclude: ['shiprocket', 'shiprocket/(.*)'],
+    exclude: ['shiprocket', 'shiprocket/(.*)', 'api/shiprocket', 'api/shiprocket/(.*)'],
   });
 
   const port = configService.get<number>('PORT', 9006);

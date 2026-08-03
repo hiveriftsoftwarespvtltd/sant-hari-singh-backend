@@ -1,12 +1,13 @@
 import { Controller, Get, Post, Query, Body, Headers } from '@nestjs/common';
 import { ShiprocketService } from './shiprocket.service';
 
-@Controller('shiprocket')
+@Controller(['shiprocket', 'api/shiprocket'])
 export class ShiprocketController {
   constructor(private readonly shiprocketService: ShiprocketService) {}
 
   /**
    * GET /shiprocket/products?page=1&limit=100
+   * GET /api/shiprocket/products?page=1&limit=100
    * GET /shiprocket/products?collection_id=1234&page=1&limit=100
    */
   @Get('products')
@@ -21,6 +22,7 @@ export class ShiprocketController {
 
   /**
    * GET /shiprocket/collections?page=1&limit=100
+   * GET /api/shiprocket/collections?page=1&limit=100
    */
   @Get('collections')
   async getCollections(
@@ -32,7 +34,7 @@ export class ShiprocketController {
 
   /**
    * GET /shiprocket/products-by-collection?collection_id=1234&page=1&limit=100
-   * Alias endpoint as referenced in some Shiprocket documentation specs
+   * GET /api/shiprocket/products-by-collection?collection_id=1234&page=1&limit=100
    */
   @Get('products-by-collection')
   async getProductsByCollection(
