@@ -160,4 +160,57 @@ export class MailService {
       `,
     });
   }
+
+  async sendOrderCancellationEmail(
+    email: string,
+    name: string,
+    orderId: string,
+    totalAmount: number,
+    reason?: string,
+  ): Promise<void> {
+    await this.mailerService.sendMail({
+      to: email,
+      subject: `Order Cancelled #${orderId} — Saint Hari`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 25px; max-width: 600px; border: 2px solid #c0392b; border-radius: 12px; background: #fdf6f6;">
+          <h2 style="color: #0C3E26; font-family: 'Georgia', serif; border-bottom: 2px solid #c0392b; padding-bottom: 10px; margin-top: 0;">
+            Order Cancelled ❌
+          </h2>
+          <p style="font-size: 15px; color: #2f3c34;">Dear <strong>${name}</strong>,</p>
+          <p style="font-size: 14px; color: #2f3c34;">
+            We're sorry to inform you that your order <strong>#${orderId}</strong> has been cancelled.
+          </p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">
+            <tr>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; font-weight: bold; background: #fde8e8; width: 35%;">Order ID:</td>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; color: #1a231e;"><strong>#${orderId}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; font-weight: bold; background: #fde8e8;">Order Amount:</td>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; color: #1a231e;">₹${totalAmount}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; font-weight: bold; background: #fde8e8;">Status:</td>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; color: #c0392b; font-weight: bold;">Cancelled</td>
+            </tr>
+            ${reason ? `<tr>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; font-weight: bold; background: #fde8e8;">Reason:</td>
+              <td style="padding: 10px; border: 1px solid #f5c6cb; color: #1a231e;">${reason}</td>
+            </tr>` : ''}
+          </table>
+          <p style="font-size: 14px; color: #2f3c34;">
+            If you paid online, any amount deducted will be refunded within <strong>5–7 business days</strong>.
+          </p>
+          <p style="font-size: 14px; color: #2f3c34;">
+            For any questions, contact us at 
+            <a href="mailto:info@santharisingh.com" style="color: #0C3E26;">info@santharisingh.com</a>
+          </p>
+          <p style="font-size: 14px; color: #2f3c34;">Regards,<br/><strong>Team Saint Hari</strong></p>
+          <p style="font-size: 11px; color: #888; margin-top: 20px; border-top: 1px solid #f5c6cb; padding-top: 10px;">
+            Cancelled on: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+          </p>
+        </div>
+      `,
+    });
+  }
 }

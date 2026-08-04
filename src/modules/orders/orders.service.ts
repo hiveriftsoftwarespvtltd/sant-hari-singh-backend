@@ -189,14 +189,28 @@ export class OrdersService implements OnModuleInit {
   }
 
   async cancelOrder(id: string, userId: string): Promise<OrderDocument> {
-    const order = await this.orderModel.findById(id);
+    const order = await this.orderModel.findById(id).populate('user', 'name email').exec();
     if (!order) throw new NotFoundException('Order not found');
-    if (order.user.toString() !== userId) throw new ForbiddenException('Access denied');
+    if (order.user['_id'].toString() !== userId) throw new ForbiddenException('Access denied');
     if (['shipped', 'delivered'].includes(order.status)) {
       throw new ForbiddenException('Cannot cancel a shipped or delivered order');
     }
     order.status = 'cancelled' as any;
-    return order.save();
+    const saved = await order.save();
+
+    // Send cancellation email to customer
+    try {
+      const u = order.user as any;
+      await this.mailService.sendOrderCancellationEmail(
+        u.email,
+        u.name,
+        id,
+        order.totalAmount,
+        'Cancelled by customer',
+      );
+    } catch (_) {}
+
+    return saved;
   }
 
   // ─── Razorpay Mocks & Verifications ─────────────────────────────────────────
@@ -366,6 +380,22 @@ export class OrdersService implements OnModuleInit {
       order.status = 'cancelled' as any;
       order.paymentStatus = PaymentStatus.FAILED;
       await order.save();
+
+      // Send cancellation email (payment failed)
+      try {
+        const populatedOrder = await this.orderModel.findById(orderId).populate('user', 'email name').exec();
+        if (populatedOrder && populatedOrder.user) {
+          const u = populatedOrder.user as any;
+          await this.mailService.sendOrderCancellationEmail(
+            u.email,
+            u.name,
+            orderId,
+            populatedOrder.totalAmount,
+            failureMessage || 'Payment was not completed',
+          );
+        }
+      } catch (_) {}
+
       return {
         success: false,
         orderId,
