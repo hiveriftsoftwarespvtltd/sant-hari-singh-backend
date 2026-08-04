@@ -405,7 +405,8 @@ export class ShiprocketService {
     const timestamp = new Date().toISOString();
 
     const formattedItems = (items || []).map((item) => {
-      const variantId = String(item.variant_id || item.sku || item.id || item._id || '1001');
+      const rawVariantId = item.variant_id || item.sku || item.id || item._id || '1001';
+      const variantId = String(toNumericId(rawVariantId));
       const itemPrice = Number(item.price || 0);
       const itemName = String(item.name || item.title || 'Ayurvedic Product');
       let imageUrl = item.img || item.image || item.image_url || 'https://santharisingh.com/images/product.png';
