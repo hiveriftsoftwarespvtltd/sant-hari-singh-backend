@@ -171,4 +171,50 @@ export class UsersService {
       otpExpires: null,
     });
   }
+
+  // ─── Phone OTP Operations ───────────────────────────────────────────────────
+  async findByPhone(phone: string): Promise<UserDocument | null> {
+    const cleaned = (phone || '').trim().replace(/\D/g, '');
+    return this.userModel.findOne({
+      $or: [{ phone: cleaned }, { phone: `+91${cleaned}` }, { phone: `91${cleaned}` }]
+    }).exec();
+  }
+
+  async setPhoneOtp(phone: string, otp: string, expires: Date): Promise<void> {
+    const cleaned = (phone || '').trim().replace(/\D/g, '');
+    await this.userModel.findOneAndUpdate(
+      { $or: [{ phone: cleaned }, { phone: `+91${cleaned}` }, { phone: `91${cleaned}` }] },
+      { otp, otpExpires: expires },
+      { new: true }
+    );
+  }
+
+  async findByPhoneAndOtp(phone: string, otp: string): Promise<UserDocument | null> {
+    const cleaned = (phone || '').trim().replace(/\D/g, '');
+    return this.userModel.findOne({
+      $or: [{ phone: cleaned }, { phone: `+91${cleaned}` }, { phone: `91${cleaned}` }],
+      otp,
+      otpExpires: { $gt: new Date() },
+    }).exec();
+  }
+
+  async clearPhoneOtp(phone: string): Promise<void> {
+    const cleaned = (phone || '').trim().replace(/\D/g, '');
+    await this.userModel.findOneAndUpdate(
+      { $or: [{ phone: cleaned }, { phone: `+91${cleaned}` }, { phone: `91${cleaned}` }] },
+      { otp: null, otpExpires: null }
+    );
+  }
+
+  async createPhoneUser(data: { phone: string; name?: string; email?: string }): Promise<UserDocument> {
+    const cleaned = (data.phone || '').trim().replace(/\D/g, '');
+    const user = new this.userModel({
+      phone: cleaned,
+      name: data.name || `User ${cleaned.slice(-4)}`,
+      email: data.email || null,
+      role: 'user',
+      isActive: true,
+    });
+    return user.save();
+  }
 }

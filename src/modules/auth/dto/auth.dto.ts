@@ -51,3 +51,32 @@ export class RefreshTokenDto {
   @IsString()
   refreshToken: string;
 }
+
+export class SendPhoneOtpDto {
+  @IsNotEmpty()
+  @IsString()
+  phone: string;
+}
+
+export class VerifyPhoneOtpDto {
+  @IsNotEmpty()
+  @IsString()
+  phone: string;
+
+  @IsNotEmpty()
+  @IsString()
+  otp: string;
+}
+
+export class CompletePhoneRegDto {
+  @IsNotEmpty()
+  @IsString()
+  phone: string;
+
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  @IsEmail()
+  email: string;
+}

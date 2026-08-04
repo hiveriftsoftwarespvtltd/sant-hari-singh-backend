@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
+import * as crypto from 'crypto';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { Category, CategoryDocument } from '../categories/schemas/category.schema';
+import { UsersService } from '../users/users.service';
 
 /**
  * Converts any string/ObjectId/number into a deterministic, unique positive Integer (Number)
@@ -34,12 +37,129 @@ function toNumericId(val: any): number {
 
 @Injectable()
 export class ShiprocketService {
+  private shiprocketToken: string | null = null;
+  private tokenExpiresAt: number = 0;
+
   constructor(
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
+    private readonly configService: ConfigService,
+    private readonly usersService: UsersService,
   ) {}
+
+  /**
+   * Step 1: Get Access Token from Shiprocket API
+   */
+  async getToken(): Promise<string | null> {
+    if (this.shiprocketToken && Date.now() < this.tokenExpiresAt) {
+      return this.shiprocketToken;
+    }
+
+    const email = this.configService.get<string>('SHIPROCKET_EMAIL') || 'api3@santharisingh.com';
+    const password = this.configService.get<string>('SHIPROCKET_PASSWORD') || 'HrAs7fZ9w47CayM91%*&GIJ5b3%mWa%n';
+
+    try {
+      const res = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Shiprocket-NestJS-Client',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (data && data.token) {
+        this.shiprocketToken = data.token;
+        this.tokenExpiresAt = Date.now() + 8 * 24 * 60 * 60 * 1000;
+        console.log('🔑 [SHIPROCKET AUTH] Access token generated successfully');
+        return this.shiprocketToken;
+      }
+      console.warn('⚠️ [SHIPROCKET AUTH] Login response without token:', data);
+      return null;
+    } catch (err) {
+      console.error('❌ [SHIPROCKET AUTH ERROR]', err);
+      return null;
+    }
+  }
+
+  /**
+   * Step 2: Send OTP API (Mobile Number Checkout)
+   */
+  async sendOtp(rawMobile: string) {
+    const cleaned = (rawMobile || '').trim().replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      throw new BadRequestException('Please enter a valid 10-digit mobile number');
+    }
+
+    let user = await this.usersService.findByPhone(cleaned);
+    const isNewUser = !user || !user.email || !user.name;
+
+    if (!user) {
+      user = await this.usersService.createPhoneUser({ phone: cleaned });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.usersService.setPhoneOtp(cleaned, otp, expires);
+    console.log(`📱 [SHIPROCKET OTP SERVICE] Generated OTP for +91 ${cleaned}: [${otp}]`);
+
+    // Fetch Token
+    const token = await this.getToken();
+    if (token) {
+      try {
+        const srRes = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ mobile: cleaned, otp }),
+        });
+        const srData = await srRes.json();
+        console.log('📦 [SHIPROCKET OTP API RESPONSE]', srData);
+      } catch (err) {
+        console.error('⚠️ Shiprocket OTP API Error:', err);
+      }
+    }
+
+    return {
+      success: true,
+      isNewUser,
+      message: `OTP sent successfully to +91 ${cleaned}`,
+    };
+  }
+
+  /**
+   * Step 3: Verify OTP API
+   */
+  async verifyOtp(rawMobile: string, otp: string) {
+    const cleaned = (rawMobile || '').trim().replace(/\D/g, '');
+    const user = await this.usersService.findByPhoneAndOtp(cleaned, otp);
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired OTP code');
+    }
+
+    await this.usersService.clearPhoneOtp(cleaned);
+
+    return {
+      success: true,
+      message: 'OTP verified successfully',
+      isNewUser: !user.name || !user.email || user.name.startsWith('User '),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+      },
+    };
+  }
+
 
   /**
    * Helper to format a single product to Shiprocket SRC format matching exact target sample schema
@@ -273,4 +393,98 @@ export class ShiprocketService {
     console.log('📊 Shiprocket Inventory Sync Webhook received:', data);
     return { status: 'success', message: 'Inventory webhook received' };
   }
+
+  /**
+   * Shiprocket Headless Checkout Token Generation API
+   */
+  async createCheckoutToken(items: any[], redirectUrl?: string, cartDiscount?: any, customAttributes?: any) {
+    const rawApiKey = this.configService.get<string>('SHIPROCKET_API_KEY') || 'VaWdmURsWCBxqCBA';
+    const rawSecretKey = this.configService.get<string>('SHIPROCKET_SECRET_KEY') || 'j2BtH9IQzTg0gHNzxqNnjCFYzsEmBBOF';
+    const apiKey = rawApiKey.replace(/^["']|["']$/g, '').trim();
+    const secretKey = rawSecretKey.replace(/^["']|["']$/g, '').trim();
+    const timestamp = new Date().toISOString();
+
+    const formattedItems = (items || []).map((item) => {
+      const variantId = String(item.variant_id || item.sku || item.id || item._id || '1001');
+      const itemPrice = Number(item.price || 0);
+      const itemName = String(item.name || item.title || 'Ayurvedic Product');
+      let imageUrl = item.img || item.image || item.image_url || 'https://santharisingh.com/images/product.png';
+      if (imageUrl && typeof imageUrl === 'string' && !imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+        imageUrl = `https://santharisingh.com${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
+      }
+
+      return {
+        variant_id: variantId,
+        quantity: Number(item.quantity || 1),
+        catalog_data: {
+          price: itemPrice,
+          name: itemName,
+          image_url: imageUrl,
+        },
+      };
+    });
+
+    if (formattedItems.length === 0) {
+      formattedItems.push({
+        variant_id: '1001',
+        quantity: 1,
+        catalog_data: {
+          price: 100,
+          name: 'Ayurvedic Product',
+          image_url: 'https://santharisingh.com/images/product.png',
+        },
+      });
+    }
+
+    const cartData: any = {
+      items: formattedItems,
+      custom_attributes: customAttributes || { source: 'santharisingh_storefront' },
+      mobile_app: false,
+    };
+
+    if (cartDiscount && Number(cartDiscount.amount) > 0) {
+      cartData.cart_discount = {
+        coupon_code: String(cartDiscount.coupon_code || 'DISCOUNT'),
+        amount: Number(cartDiscount.amount),
+      };
+    }
+
+    const payload = {
+      cart_data: cartData,
+      redirect_url: redirectUrl || 'https://santharisingh.com/order-confirm',
+      timestamp: timestamp,
+    };
+
+    const bodyStr = JSON.stringify(payload);
+    const hmac = crypto.createHmac('sha256', secretKey).update(bodyStr).digest('base64');
+
+    try {
+      const res = await fetch('https://checkout-api.shiprocket.com/api/v1/access-token/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Api-Key': apiKey,
+          'X-Api-HMAC-SHA256': hmac,
+        },
+        body: bodyStr,
+      });
+
+      const data = await res.json();
+      if (data && data.ok && data.result) {
+        console.log('🚀 [SHIPROCKET HEADLESS CHECKOUT TOKEN] Generated:', data.result.token);
+        return {
+          success: true,
+          token: data.result.token,
+          expires_at: data.result.expires_at,
+          order_id: data.result.data?.order_id,
+        };
+      }
+      console.warn('⚠️ [SHIPROCKET HEADLESS TOKEN FAILED]', data);
+      return { success: false, error: data.error || 'Could not generate checkout token', data };
+    } catch (err) {
+      console.error('❌ Shiprocket Headless Token Error:', err);
+      throw new BadRequestException('Failed to generate Shiprocket Checkout Token');
+    }
+  }
 }
+

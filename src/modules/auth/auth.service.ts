@@ -210,6 +210,129 @@ export class AuthService {
     return this.usersService.findById(userId);
   }
 
+  // ─── Mobile Number OTP Auth Handlers ─────────────────────────────────────────
+  async sendPhoneOtp(rawPhone: string) {
+    const cleaned = (rawPhone || '').trim().replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      throw new BadRequestException('Please enter a valid 10-digit mobile number');
+    }
+
+    let user = await this.usersService.findByPhone(cleaned);
+    const isNewUser = !user || !user.email || !user.name;
+
+    if (!user) {
+      user = await this.usersService.createPhoneUser({ phone: cleaned });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await this.usersService.setPhoneOtp(cleaned, otp, expires);
+    // Clean OTP generation & logging
+    console.log(`📱 [PHONE OTP] Generated OTP for +91 ${cleaned}: [${otp}]`);
+
+    // Fast2SMS Real SMS Gateway Dispatch (if FAST2SMS_API_KEY is set in .env)
+    const fast2smsApiKey = this.configService.get<string>('FAST2SMS_API_KEY');
+    if (fast2smsApiKey) {
+      try {
+        const smsRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+          method: 'POST',
+          headers: {
+            authorization: fast2smsApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            route: 'otp',
+            variables_values: otp,
+            numbers: cleaned,
+          }),
+        });
+        const smsData = await smsRes.json();
+        console.log(`📱 [FAST2SMS DISPATCH] Real SMS sent to +91 ${cleaned}:`, smsData);
+      } catch (err) {
+        console.error('⚠️ [FAST2SMS SMS ERROR]', err);
+      }
+    }
+
+    return {
+      success: true,
+      isNewUser,
+      message: `OTP sent successfully to +91 ${cleaned}`,
+      otp,
+    };
+  }
+
+  async verifyPhoneOtp(rawPhone: string, otp: string) {
+    const cleaned = (rawPhone || '').trim().replace(/\D/g, '');
+    const user = await this.usersService.findByPhoneAndOtp(cleaned, otp);
+    if (!user) {
+      throw new BadRequestException('Invalid or expired OTP code');
+    }
+
+    await this.usersService.clearPhoneOtp(cleaned);
+
+    const isNewUser = !user.name || !user.email || user.name.startsWith('User ');
+    if (isNewUser) {
+      return {
+        success: true,
+        isNewUser: true,
+        message: 'OTP verified. Please complete your registration details.',
+        phone: cleaned,
+      };
+    }
+
+    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
+    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return {
+      success: true,
+      isNewUser: false,
+      message: 'Login successful',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        avatar: user.avatar,
+      },
+      token: tokens.accessToken,
+      ...tokens,
+    };
+  }
+
+  async completePhoneRegistration(rawPhone: string, name: string, email: string) {
+    const cleaned = (rawPhone || '').trim().replace(/\D/g, '');
+    let user = await this.usersService.findByPhone(cleaned);
+    
+    if (!user) {
+      user = await this.usersService.createPhoneUser({ phone: cleaned, name, email });
+    } else {
+      user.name = name;
+      user.email = email;
+      await user.save();
+    }
+
+    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
+    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return {
+      success: true,
+      message: 'Account created successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        avatar: user.avatar,
+      },
+      token: tokens.accessToken,
+      ...tokens,
+    };
+  }
+
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
   private async generateTokens(userId: string, email: string, role: string) {
     const payload = { sub: userId, email, role };

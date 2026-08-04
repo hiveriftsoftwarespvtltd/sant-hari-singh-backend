@@ -73,6 +73,27 @@ export class AuthController {
     return this.authService.requestOtp(body.email);
   }
 
+  // POST /api/auth/phone/send-otp
+  @Post('phone/send-otp')
+  @HttpCode(HttpStatus.OK)
+  async sendPhoneOtp(@Body() body: { phone: string }) {
+    return this.authService.sendPhoneOtp(body.phone);
+  }
+
+  // POST /api/auth/phone/verify-otp
+  @Post('phone/verify-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifyPhoneOtp(@Body() body: { phone: string; otp: string }) {
+    return this.authService.verifyPhoneOtp(body.phone, body.otp);
+  }
+
+  // POST /api/auth/phone/complete-registration
+  @Post('phone/complete-registration')
+  @HttpCode(HttpStatus.OK)
+  async completePhoneRegistration(@Body() body: { phone: string; name: string; email: string }) {
+    return this.authService.completePhoneRegistration(body.phone, body.name, body.email);
+  }
+
   // GET /api/auth/me
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -80,3 +101,4 @@ export class AuthController {
     return this.authService.getMe(req.user.userId);
   }
 }
+

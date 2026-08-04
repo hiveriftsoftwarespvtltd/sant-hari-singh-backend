@@ -48,6 +48,29 @@ export class ShiprocketController {
   }
 
   /**
+   * Shiprocket OTP Endpoints
+   */
+  @Post('send-otp')
+  async sendOtp(@Body() body: { mobile?: string; phone?: string }) {
+    const numberToUse = body.mobile || body.phone || '';
+    return this.shiprocketService.sendOtp(numberToUse);
+  }
+
+  @Post('verify-otp')
+  async verifyOtp(@Body() body: { mobile?: string; phone?: string; otp: string }) {
+    const numberToUse = body.mobile || body.phone || '';
+    return this.shiprocketService.verifyOtp(numberToUse, body.otp);
+  }
+
+  /**
+   * Shiprocket Headless Checkout Access Token API
+   */
+  @Post('checkout-token')
+  async createCheckoutToken(@Body() body: { items?: any[]; redirect_url?: string; cart_discount?: any; custom_attributes?: any }) {
+    return this.shiprocketService.createCheckoutToken(body.items || [], body.redirect_url, body.cart_discount, body.custom_attributes);
+  }
+
+  /**
    * Webhook Endpoints
    */
   @Post('order')
@@ -65,3 +88,4 @@ export class ShiprocketController {
     return this.shiprocketService.handleInventorySync(body);
   }
 }
+

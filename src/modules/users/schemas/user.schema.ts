@@ -10,13 +10,13 @@ export enum UserRole {
 
 @Schema({ timestamps: true })
 export class User {
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true, default: '' })
   name: string;
 
-  @Prop({ required: true, unique: true, lowercase: true, trim: true })
+  @Prop({ required: false, unique: false, lowercase: true, trim: true, sparse: true, default: null })
   email: string;
 
-  @Prop({ required: true, select: false })
+  @Prop({ required: false, select: false, default: null })
   password: string;
 
   @Prop({ default: UserRole.USER, enum: UserRole })
@@ -43,7 +43,7 @@ export class User {
   @Prop({ default: null })
   avatar: string;
 
-  @Prop({ default: null })
+  @Prop({ default: null, index: true })
   phone: string;
 
   @Prop({ type: [Object], default: [] })
