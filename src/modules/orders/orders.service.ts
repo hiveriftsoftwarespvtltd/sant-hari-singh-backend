@@ -118,16 +118,19 @@ export class OrdersService implements OnModuleInit {
       await this.couponsService.useCoupon(promoCode);
     }
 
-    // Send order confirmation email
-    try {
-      await this.mailService.sendOrderConfirmationEmail(
-        user.email,
-        user.name,
-        saved._id.toString(),
-        mappedItems,
-        total,
-      );
-    } catch (_) {}
+    // Send order confirmation email ONLY for COD orders (payment already confirmed)
+    // For online payments (CCAvenue, Razorpay), email is sent AFTER payment verification
+    if (paymentMethod === 'cod' || paymentMethod === 'COD') {
+      try {
+        await this.mailService.sendOrderConfirmationEmail(
+          user.email,
+          user.name,
+          saved._id.toString(),
+          mappedItems,
+          total,
+        );
+      } catch (_) {}
+    }
 
     return saved;
   }
@@ -338,6 +341,22 @@ export class OrdersService implements OnModuleInit {
       }
       
       await order.save();
+
+      // ✅ Send confirmation email ONLY after successful payment
+      try {
+        const populatedOrder = await this.orderModel.findById(orderId).populate('user', 'email name').exec();
+        if (populatedOrder && populatedOrder.user) {
+          const u = populatedOrder.user as any;
+          await this.mailService.sendOrderConfirmationEmail(
+            u.email,
+            u.name,
+            orderId,
+            populatedOrder.items as any,
+            populatedOrder.totalAmount,
+          );
+        }
+      } catch (_) {}
+
       return {
         success: true,
         orderId,
