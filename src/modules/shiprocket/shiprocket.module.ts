@@ -6,6 +6,7 @@ import { ShiprocketService } from './shiprocket.service';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
 import { Category, CategorySchema } from '../categories/schemas/category.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { UsersModule } from '../users/users.module';
       { name: Product.name, schema: ProductSchema },
       { name: Category.name, schema: CategorySchema },
       { name: User.name, schema: UserSchema },
+      { name: Order.name, schema: OrderSchema },
     ]),
   ],
   controllers: [ShiprocketController],

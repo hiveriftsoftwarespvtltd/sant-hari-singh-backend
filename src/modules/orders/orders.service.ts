@@ -97,7 +97,13 @@ export class OrdersService implements OnModuleInit {
       country: shippingAddress?.country || 'India',
     };
 
+    const count = await this.orderModel.countDocuments();
+    const nextSeq = 1001 + count;
+    const customOrderId = `SHS-${nextSeq}`;
+
     const order = new this.orderModel({
+      id: customOrderId,
+      orderNumber: nextSeq,
       user: user._id,
       items: mappedItems,
       shippingAddress: shipAddr,

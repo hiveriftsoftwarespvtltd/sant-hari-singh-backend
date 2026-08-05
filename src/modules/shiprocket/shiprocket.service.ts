@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { Category, CategoryDocument } from '../categories/schemas/category.schema';
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { UsersService } from '../users/users.service';
 
 /**
@@ -45,9 +46,11 @@ export class ShiprocketService {
     private readonly productModel: Model<ProductDocument>,
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
+    @InjectModel(Order.name)
+    private readonly orderModel: Model<OrderDocument>,
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
-  ) {}
+  ) { }
 
   /**
    * Step 1: Get Access Token from Shiprocket API
@@ -184,8 +187,8 @@ export class ShiprocketService {
 
     const mainImageSrc = uniqueImages.length > 0
       ? (uniqueImages[0].startsWith('http://') || uniqueImages[0].startsWith('https://')
-          ? uniqueImages[0]
-          : `${baseUrl}${uniqueImages[0].startsWith('/') ? uniqueImages[0] : '/' + uniqueImages[0]}`)
+        ? uniqueImages[0]
+        : `${baseUrl}${uniqueImages[0].startsWith('/') ? uniqueImages[0] : '/' + uniqueImages[0]}`)
       : `${baseUrl}/images/product.png`;
 
     // Handle variants according to exact target sample structure
@@ -194,7 +197,7 @@ export class ShiprocketService {
       variants = product.variants.map((v: any, idx: number) => {
         const variantId = v._id || v.id ? toNumericId(v._id || v.id) : (numericProductId * 10 + idx + 1);
         const varTitle = v.title || v.name || v.size || 'Standard';
-        
+
         let variantImgSrc = mainImageSrc;
         if (v.image && typeof v.image === 'string' && v.image.trim() !== '') {
           variantImgSrc = v.image.startsWith('http://') || v.image.startsWith('https://')
@@ -380,13 +383,105 @@ export class ShiprocketService {
    * Webhook handlers (Order Sync / Inventory Sync)
    */
   async handleOrderSync(data: any) {
-    console.log('📦 Shiprocket Order Sync Webhook received:', data);
-    return { status: 'success', message: 'Order webhook received' };
+    console.log('📦 Shiprocket Order Sync Webhook received:', JSON.stringify(data));
+    try {
+      const payload = data.order || data.current || data;
+      const orderIdStr = String(payload.id || payload.order_id || payload.channel_order_id || Date.now());
+      const customerEmail = payload.email || payload.customer_email || `guest-${Date.now()}@santharisingh.com`;
+      const customerName = payload.customer_name || payload.billing_name || payload.shipping_name || 'Guest Customer';
+      const phone = payload.customer_phone || payload.billing_phone || payload.shipping_phone || '';
+
+      const totalAmount = Number(payload.total || payload.total_price || payload.grand_total || 0);
+      const paymentMethod = (payload.payment_method || payload.payment_type || 'cod').toLowerCase().includes('cod') ? 'cod' : 'online';
+      const paymentStatus = paymentMethod === 'cod' ? 'pending' : 'paid';
+
+      // Find or auto-create User account in MongoDB so customer appears in Admin Customers List
+      let user: any = null;
+      if (customerEmail) {
+        user = await this.usersService.findByEmail(customerEmail);
+      }
+      if (!user) {
+        const dummyPassword = crypto.randomBytes(12).toString('hex');
+        user = await this.usersService.create({
+          name: customerName,
+          email: customerEmail,
+          phone: phone,
+          password: dummyPassword,
+          isActive: true,
+        } as any);
+        console.log('👤 [AUTO-CREATED CUSTOMER PROFILE]:', user._id.toString(), customerName, customerEmail);
+      }
+
+      const items = (payload.line_items || payload.products || payload.items || []).map((it: any) => ({
+        product: new Types.ObjectId(),
+        name: String(it.name || it.title || 'Ayurvedic Product'),
+        price: Number(it.price || 0),
+        quantity: Number(it.quantity || 1),
+        image: String(it.image || it.image_url || '/images/product.png'),
+      }));
+
+      const shippingAddress = {
+        fullName: customerName,
+        phone: phone,
+        addressLine1: String(payload.billing_address || payload.shipping_address || ''),
+        addressLine2: String(payload.billing_address_2 || payload.shipping_address_2 || ''),
+        city: String(payload.billing_city || payload.shipping_city || ''),
+        state: String(payload.billing_state || payload.shipping_state || ''),
+        pincode: String(payload.billing_pincode || payload.shipping_pincode || ''),
+        country: String(payload.billing_country || payload.shipping_country || 'India'),
+      };
+
+      const count = await this.orderModel.countDocuments();
+      const nextSeq = 1001 + count;
+      const customOrderId = `SHS-${nextSeq}`;
+
+      const newOrder = new this.orderModel({
+        id: customOrderId,
+        orderNumber: nextSeq,
+        user: user ? user._id : null,
+        items: items,
+        totalAmount: totalAmount,
+        shippingCharge: Number(payload.shipping_charges || 0),
+        discount: Number(payload.discount_amount || 0),
+        status: 'confirmed',
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        shippingAddress: shippingAddress,
+        notes: `Order created via Shiprocket Headless Checkout (${orderIdStr})`,
+      });
+
+      await newOrder.save();
+      console.log('✅ [SHIPROCKET ORDER SYNCED TO MONGODB]:', newOrder._id.toString());
+      return { status: 'success', message: 'Order created in database', orderId: newOrder._id.toString(), userId: user?._id?.toString() };
+    } catch (err) {
+      console.error('❌ Error saving Shiprocket order to MongoDB:', err);
+      return { status: 'error', message: err.message };
+    }
   }
 
   async handleOrderUpdate(data: any) {
     console.log('🔄 Shiprocket Order Update Webhook received:', data);
-    return { status: 'success', message: 'Order update webhook received' };
+    try {
+      const payload = data.order || data.current || data;
+      const orderIdStr = String(payload.id || payload.order_id || '');
+      if (orderIdStr) {
+        const statusMap: any = {
+          'DELIVERED': 'delivered',
+          'SHIPPED': 'shipped',
+          'CANCELED': 'cancelled',
+          'CANCELLED': 'cancelled',
+        };
+        const newStatus = statusMap[String(payload.status || '').toUpperCase()] || 'processing';
+        await this.orderModel.updateOne(
+          { id: { $regex: new RegExp(orderIdStr, 'i') } },
+          { $set: { status: newStatus } }
+        );
+      }
+      return { status: 'success', message: 'Order status updated' };
+    } catch (err) {
+      console.error('❌ Error updating Shiprocket order:', err);
+      return { status: 'error', message: err.message };
+    }
   }
 
   async handleInventorySync(data: any) {
@@ -414,15 +509,20 @@ export class ShiprocketService {
         imageUrl = `https://santharisingh.com${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
       }
 
-      return {
+      const itemObj: any = {
         variant_id: variantId,
         quantity: Number(item.quantity || 1),
-        catalog_data: {
+      };
+
+      if (itemPrice > 0 || itemName) {
+        itemObj.catalog_data = {
           price: itemPrice,
           name: itemName,
           image_url: imageUrl,
-        },
-      };
+        };
+      }
+
+      return itemObj;
     });
 
     if (formattedItems.length === 0) {
@@ -443,12 +543,6 @@ export class ShiprocketService {
       mobile_app: false,
     };
 
-    if (cartDiscount && Number(cartDiscount.amount) > 0) {
-      cartData.cart_discount = {
-        coupon_code: String(cartDiscount.coupon_code || 'DISCOUNT'),
-        amount: Number(cartDiscount.amount),
-      };
-    }
 
     const payload = {
       cart_data: cartData,
@@ -457,6 +551,7 @@ export class ShiprocketService {
     };
 
     const bodyStr = JSON.stringify(payload);
+    console.log(bodyStr);
     const hmac = crypto.createHmac('sha256', secretKey).update(bodyStr).digest('base64');
 
     try {
