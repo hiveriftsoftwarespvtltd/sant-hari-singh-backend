@@ -73,12 +73,12 @@ export class ShiprocketController {
   /**
    * Webhook Endpoints
    */
-  @Post('order')
+  @Post(['order', 'order/create', 'order/sync', 'webhook', 'shiprocket-order'])
   async createOrderWebhook(@Body() body: any) {
     return this.shiprocketService.handleOrderSync(body);
   }
 
-  @Post('order/update')
+  @Post(['order/update', 'order-update', 'status-update'])
   async updateOrderWebhook(@Body() body: any) {
     return this.shiprocketService.handleOrderUpdate(body);
   }
