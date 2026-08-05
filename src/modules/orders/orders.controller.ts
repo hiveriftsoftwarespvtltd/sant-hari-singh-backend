@@ -17,7 +17,7 @@ import { OrdersService } from './orders.service';
 
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(private readonly ordersService: OrdersService) { }
 
   // POST /api/orders — Create order (Public checkout)
   @Post()
@@ -33,7 +33,8 @@ export class OrdersController {
     const shipAddr = {
       name: sa.fullName || sa.name || (o.user?.name) || 'Guest',
       fullName: sa.fullName || sa.name || '',
-      phone: sa.phone || '',
+      phone: sa.phone || (o.user?.phone) || o.phone || '',
+      email: sa.email || (o.user?.email) || o.customerEmail || o.email || '',
       address: sa.addressLine1 || sa.address || '',
       addressLine1: sa.addressLine1 || sa.address || '',
       addressLine2: sa.addressLine2 || '',
@@ -51,15 +52,15 @@ export class OrdersController {
       img: it.image || '',
     }));
     return {
-      id: o._id.toString(),
+      id: o.id || o._id.toString(),
       _id: o._id.toString(),
       items,
       itemsDetails: items,
       itemCount: items.length,
       shippingAddress: shipAddr,
       billingAddress: shipAddr,
-      customerEmail: o.user?.email || '',
-      customerName: o.user?.name || shipAddr.name,
+      customerEmail: o.user?.email || sa.email || o.customerEmail || o.email || '',
+      customerName: o.user?.name || shipAddr.name || sa.fullName || o.customerName || 'Valued Customer',
       paymentMethod: o.paymentMethod || 'cod',
       paymentStatus: o.paymentStatus || 'pending',
       status: o.status || 'pending',
@@ -74,9 +75,19 @@ export class OrdersController {
     };
   }
 
-  // GET /api/orders — Handles both admin listing (all) and user profile listing (by email)
+  // GET /api/orders — Handles admin listing (all) and user profile listing (by email or phone)
   @Get()
-  async getOrders(@Query('email') email?: string) {
+  async getOrders(@Query('email') email?: string, @Query('phone') phone?: string) {
+    if (phone) {
+      const all = await this.ordersService.findAll();
+      const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+      const filtered = all.filter(o => {
+        const p1 = (o.shippingAddress?.phone || '').replace(/[^0-9]/g, '');
+        const p2 = (o.user?.phone || '').replace(/[^0-9]/g, '');
+        return (cleanPhone && (p1.includes(cleanPhone) || p2.includes(cleanPhone)));
+      });
+      return filtered.map((o) => this.mapOrder(o));
+    }
     if (email) {
       const list = await this.ordersService.findByEmail(email);
       return list.map((o) => this.mapOrder(o));
