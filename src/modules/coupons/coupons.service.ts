@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Coupon, CouponDocument } from './schemas/coupon.schema';
@@ -25,50 +25,89 @@ export class CouponsService {
   }
 
   async create(createDto: Partial<Coupon>): Promise<CouponDocument> {
-    if (createDto.code) {
-      createDto.code = createDto.code.toUpperCase();
-    }
-    const existing = await this.couponModel.findOne({ code: createDto.code }).exec();
-    if (existing) {
-      throw new ConflictException('Coupon code already exists');
-    }
+    try {
+      if (createDto.code) {
+        createDto.code = createDto.code.trim().toUpperCase();
+      }
+      if (!createDto.code) {
+        throw new BadRequestException('Coupon code is required');
+      }
 
-    // Sync legacy/helper properties
-    const discountVal = createDto.discountValue || 0;
-    const discType = createDto.discountType || 'percentage';
-    createDto.discount = discountVal;
-    createDto.type = discType === 'percentage' ? 'percent' : 'fixed';
-    createDto.active = createDto.status === 'active';
+      const existing = await this.couponModel.findOne({ code: createDto.code }).exec();
+      if (existing) {
+        throw new ConflictException('Coupon code already exists');
+      }
 
-    const coupon = new this.couponModel(createDto);
-    return coupon.save();
+      // Sync legacy/helper properties
+      const discountVal = createDto.discountValue || 0;
+      const discType = createDto.discountType || 'percentage';
+      createDto.discount = discountVal;
+      createDto.type = discType === 'percentage' ? 'percent' : 'fixed';
+      createDto.active = createDto.status === 'active';
+
+      // Clean up transient id props before saving to Mongoose
+      delete (createDto as any).id;
+      delete (createDto as any)._id;
+
+      const coupon = new this.couponModel(createDto);
+      return await coupon.save();
+    } catch (error: any) {
+      if (error instanceof ConflictException || error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error.code === 11000) {
+        throw new ConflictException('Coupon code already exists');
+      }
+      console.error('❌ Coupon create error:', error);
+      throw new BadRequestException(error.message || 'Failed to create coupon');
+    }
   }
 
   async update(id: string, updateDto: Partial<Coupon>): Promise<CouponDocument> {
-    if (updateDto.code) {
-      updateDto.code = updateDto.code.toUpperCase();
-    }
-
-    // Sync legacy/helper properties if updated
-    if (updateDto.discountValue !== undefined || updateDto.discountType !== undefined || updateDto.status !== undefined) {
-      const discVal = updateDto.discountValue !== undefined ? updateDto.discountValue : 0;
-      const discType = updateDto.discountType || 'percentage';
-      updateDto.discount = discVal;
-      updateDto.type = discType === 'percentage' ? 'percent' : 'fixed';
-      if (updateDto.status !== undefined) {
-        updateDto.active = updateDto.status === 'active';
+    try {
+      if (updateDto.code) {
+        updateDto.code = updateDto.code.trim().toUpperCase();
       }
-    }
 
-    const coupon = await this.couponModel.findByIdAndUpdate(id, updateDto, { new: true }).exec();
-    if (!coupon) throw new NotFoundException('Coupon not found');
-    return coupon;
+      delete (updateDto as any).id;
+      delete (updateDto as any)._id;
+
+      // Sync legacy/helper properties if updated
+      if (updateDto.discountValue !== undefined || updateDto.discountType !== undefined || updateDto.status !== undefined) {
+        const discVal = updateDto.discountValue !== undefined ? updateDto.discountValue : 0;
+        const discType = updateDto.discountType || 'percentage';
+        updateDto.discount = discVal;
+        updateDto.type = discType === 'percentage' ? 'percent' : 'fixed';
+        if (updateDto.status !== undefined) {
+          updateDto.active = updateDto.status === 'active';
+        }
+      }
+
+      const coupon = await this.couponModel.findByIdAndUpdate(id, updateDto, { new: true }).exec();
+      if (!coupon) throw new NotFoundException('Coupon not found');
+      return coupon;
+    } catch (error: any) {
+      if (error instanceof ConflictException || error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error.code === 11000) {
+        throw new ConflictException('Coupon code already exists');
+      }
+      console.error('❌ Coupon update error:', error);
+      throw new BadRequestException(error.message || 'Failed to update coupon');
+    }
   }
 
   async remove(id: string): Promise<{ message: string }> {
-    const coupon = await this.couponModel.findByIdAndDelete(id).exec();
-    if (!coupon) throw new NotFoundException('Coupon not found');
-    return { message: 'Coupon deleted successfully' };
+    try {
+      const coupon = await this.couponModel.findByIdAndDelete(id).exec();
+      if (!coupon) throw new NotFoundException('Coupon not found');
+      return { message: 'Coupon deleted successfully' };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      console.error('❌ Coupon remove error:', error);
+      throw new BadRequestException(error.message || 'Failed to delete coupon');
+    }
   }
 
   async useCoupon(code: string): Promise<void> {
