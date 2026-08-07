@@ -115,13 +115,3 @@ export class AuthController {
     return this.authService.getMe(req.user.userId);
   }
 }
-
-
-// GET /api/auth/me
-@Get('me')
-@UseGuards(JwtAuthGuard)
-async getMe(@Request() req) {
-  return this.authService.getMe(req.user.userId);
-}
-}
-
