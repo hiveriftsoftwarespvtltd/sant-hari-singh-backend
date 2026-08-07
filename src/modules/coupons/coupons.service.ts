@@ -57,7 +57,11 @@ export class CouponsService {
         throw error;
       }
       if (error.code === 11000) {
-        throw new ConflictException(`Coupon code "${createDto.code}" already exists. Please use a different code.`);
+        const keyPattern = error.keyPattern || error.keyValue || {};
+        if (keyPattern.code) {
+          throw new ConflictException(`Coupon code "${createDto.code}" already exists. Please use a different code.`);
+        }
+        throw new BadRequestException('A coupon with duplicate properties already exists.');
       }
       console.error('❌ Coupon create error:', error);
       throw new BadRequestException(error.message || 'Failed to create coupon');
