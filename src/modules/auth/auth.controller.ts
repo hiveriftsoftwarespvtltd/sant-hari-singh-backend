@@ -35,6 +35,13 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  // POST /api/admin/login  (Admin Portal Login — checks admin role)
+  @Post('admin-login')
+  @HttpCode(HttpStatus.OK)
+  async adminLogin(@Body() loginDto: LoginDto) {
+    return this.authService.adminLogin(loginDto);
+  }
+
   // POST /api/auth/logout
   @Post('logout')
   @UseGuards(JwtAuthGuard)

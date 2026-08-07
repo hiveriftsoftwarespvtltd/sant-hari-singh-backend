@@ -108,6 +108,38 @@ export class AuthService {
     }
   }
 
+  // ─── Admin Login ─────────────────────────────────────────────────────────────
+  async adminLogin(loginDto: LoginDto) {
+    const user = await this.usersService.findByEmail(loginDto.email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    if (!user.password) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    if (user.role !== 'admin') {
+      throw new UnauthorizedException('Access denied: Admin only');
+    }
+    const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
+    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+    return {
+      success: true,
+      message: 'Admin login successful',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      token: tokens.accessToken,
+      ...tokens,
+    };
+  }
+
   // ─── Logout ─────────────────────────────────────────────────────────────────
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
