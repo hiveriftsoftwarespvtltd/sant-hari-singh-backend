@@ -21,7 +21,8 @@ export class CouponsService {
   }
 
   async findByCode(code: string): Promise<CouponDocument | null> {
-    return this.couponModel.findOne({ code: code.toUpperCase() }).exec();
+    if (!code) return null;
+    return this.couponModel.findOne({ code: code.trim().toUpperCase() }).exec();
   }
 
   async create(createDto: Partial<Coupon>): Promise<CouponDocument> {
@@ -35,7 +36,7 @@ export class CouponsService {
 
       const existing = await this.couponModel.findOne({ code: createDto.code }).exec();
       if (existing) {
-        throw new ConflictException('Coupon code already exists');
+        throw new ConflictException(`Coupon code "${createDto.code}" already exists. Please use a different code.`);
       }
 
       // Sync legacy/helper properties
@@ -56,7 +57,7 @@ export class CouponsService {
         throw error;
       }
       if (error.code === 11000) {
-        throw new ConflictException('Coupon code already exists');
+        throw new ConflictException(`Coupon code "${createDto.code}" already exists. Please use a different code.`);
       }
       console.error('❌ Coupon create error:', error);
       throw new BadRequestException(error.message || 'Failed to create coupon');
@@ -67,6 +68,10 @@ export class CouponsService {
     try {
       if (updateDto.code) {
         updateDto.code = updateDto.code.trim().toUpperCase();
+        const existing = await this.couponModel.findOne({ code: updateDto.code }).exec();
+        if (existing && existing._id.toString() !== id) {
+          throw new ConflictException(`Coupon code "${updateDto.code}" is already used by another coupon.`);
+        }
       }
 
       delete (updateDto as any).id;
@@ -91,7 +96,7 @@ export class CouponsService {
         throw error;
       }
       if (error.code === 11000) {
-        throw new ConflictException('Coupon code already exists');
+        throw new ConflictException(`Coupon code "${updateDto.code}" is already in use.`);
       }
       console.error('❌ Coupon update error:', error);
       throw new BadRequestException(error.message || 'Failed to update coupon');
