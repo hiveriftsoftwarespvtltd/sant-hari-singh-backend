@@ -61,14 +61,18 @@ export class OrdersService implements OnModuleInit {
     if (!user && email) {
       user = await this.usersService.findByEmail(email);
     }
+    if (!user && phone) {
+      user = await this.usersService.findByPhone(phone);
+    }
     if (!user) {
       // Create guest user
       const randomPassword = crypto.randomBytes(16).toString('hex');
       const hashedPassword = await bcrypt.hash(randomPassword, 12);
+      const cleanedPhone = (phone || '').trim().replace(/\D/g, '');
       user = await this.usersService.create({
-        name: customer || 'Guest Customer',
-        email: email || `guest-${Date.now()}@santharising.com`,
-        phone: phone || '',
+        name: customer || (cleanedPhone ? `User ${cleanedPhone.slice(-4)}` : 'Guest Customer'),
+        email: email || (cleanedPhone ? `${cleanedPhone}@santharisingh.com` : `guest-${Date.now()}@santharisingh.com`),
+        phone: cleanedPhone || '',
         password: hashedPassword,
         isActive: true,
       } as any);
@@ -128,10 +132,11 @@ export class OrdersService implements OnModuleInit {
     // For online payments (CCAvenue, Razorpay), email is sent AFTER payment verification
     if (paymentMethod === 'cod' || paymentMethod === 'COD') {
       try {
+        const displayId = saved.id || `SHS-${saved.orderNumber || 1001}`;
         await this.mailService.sendOrderConfirmationEmail(
           user.email,
           user.name,
-          saved._id.toString(),
+          displayId,
           mappedItems,
           total,
         );
@@ -185,12 +190,76 @@ export class OrdersService implements OnModuleInit {
     id: string,
     updateOrderStatusDto: any,
   ): Promise<OrderDocument> {
-    const order = await this.orderModel.findByIdAndUpdate(
-      id,
-      { status: updateOrderStatusDto.status },
-      { new: true },
-    );
-    if (!order) throw new NotFoundException('Order not found');
+    const isObjId = Types.ObjectId.isValid(id);
+    let order: any = null;
+
+    if (isObjId) {
+      order = await this.orderModel.findByIdAndUpdate(
+        id,
+        { status: updateOrderStatusDto.status },
+        { new: true },
+      ).exec();
+    }
+
+    if (!order) {
+      order = await this.orderModel.findOneAndUpdate(
+        {
+          $or: [
+            { id: id },
+            { id: `#${id}` },
+            { id: id.replace('#', '') },
+            { id: `SHS-${id}` },
+            { id: `SHS-${id.replace('#', '')}` },
+          ],
+        },
+        { status: updateOrderStatusDto.status },
+        { new: true },
+      ).exec();
+    }
+
+    if (!order) {
+      const all = await this.orderModel.find().exec();
+      const match = all.find(
+        (o) =>
+          o.id === id ||
+          o._id.toString() === id ||
+          `#${o.id}` === id ||
+          o.id === `#${id}` ||
+          o.id?.toString().includes(id),
+      );
+      if (match) {
+        match.status = updateOrderStatusDto.status as any;
+        order = await match.save();
+      }
+    }
+
+    if (!order) throw new NotFoundException(`Order with ID ${id} not found`);
+
+    // Safely populate user if available
+    try {
+      if (order.user && Types.ObjectId.isValid(order.user.toString())) {
+        await order.populate({ path: 'user', select: 'name email phone' });
+      }
+    } catch (_) {}
+
+    // Send email notification to customer regarding status change
+    try {
+      const u = order.user as any;
+      const email = u?.email || (order as any).customerEmail || (order as any).shippingAddress?.email;
+      const name = u?.name || (order as any).customerName || (order as any).shippingAddress?.fullName || (order as any).shippingAddress?.name || 'Valued Customer';
+
+      if (email) {
+        await this.mailService.sendOrderStatusEmail(
+          email,
+          name,
+          order.id || order._id.toString(),
+          updateOrderStatusDto.status,
+        );
+      }
+    } catch (e) {
+      console.error('Error sending order status email:', e);
+    }
+
     return order;
   }
 
@@ -367,10 +436,11 @@ export class OrdersService implements OnModuleInit {
         const populatedOrder = await this.orderModel.findById(orderId).populate('user', 'email name').exec();
         if (populatedOrder && populatedOrder.user) {
           const u = populatedOrder.user as any;
+          const displayId = populatedOrder.id || `SHS-${populatedOrder.orderNumber || 1001}`;
           await this.mailService.sendOrderConfirmationEmail(
             u.email,
             u.name,
-            orderId,
+            displayId,
             populatedOrder.items as any,
             populatedOrder.totalAmount,
           );
@@ -431,5 +501,34 @@ export class OrdersService implements OnModuleInit {
     let decoded = decipher.update(encText, 'hex', 'utf8');
     decoded += decipher.final('utf8');
     return decoded;
+  }
+
+  // ─── Delete Operations ───────────────────────────────────────────────────
+  async deleteOrder(id: string): Promise<any> {
+    const isObjId = Types.ObjectId.isValid(id);
+    const filter = isObjId ? { _id: id } : { id: id };
+    const deleted = await this.orderModel.findOneAndDelete(filter).exec();
+    if (!deleted) {
+      throw new NotFoundException('Order not found');
+    }
+    return { success: true, message: 'Order deleted successfully' };
+  }
+
+  async deleteBulkOrders(ids: string[]): Promise<any> {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('No order IDs provided for deletion');
+    }
+    const objectIds = ids.filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id));
+    const customIds = ids.filter((id) => !Types.ObjectId.isValid(id));
+
+    const result = await this.orderModel.deleteMany({
+      $or: [
+        { _id: { $in: objectIds } },
+        { id: { $in: customIds } },
+        { id: { $in: ids } },
+      ],
+    }).exec();
+
+    return { success: true, deletedCount: result.deletedCount, message: `${result.deletedCount} orders deleted successfully` };
   }
 }

@@ -8,7 +8,7 @@ import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 export class UsersService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
-  ) {}
+  ) { }
 
   async create(createUserDto: CreateUserDto): Promise<UserDocument> {
     const user = new this.userModel(createUserDto);
@@ -84,11 +84,21 @@ export class UsersService {
   }
 
   async addAddress(email: string, address: any): Promise<any[]> {
-    const user = await this.userModel.findOne({ email }).exec();
-    if (!user) throw new NotFoundException('User not found');
-
+    let user = await this.userModel.findOne({ email }).exec();
     const addressId = address.id || `ADR-${Date.now()}`;
     const newAddress = { ...address, id: addressId };
+
+    if (!user) {
+      const name = [address.firstName, address.lastName].filter(Boolean).join(' ') || email.split('@')[0];
+      user = new this.userModel({
+        email,
+        name,
+        phone: address.phone || '',
+        addresses: [newAddress],
+      });
+      await user.save();
+      return user.addresses;
+    }
 
     if (newAddress.isDefault) {
       user.addresses = (user.addresses || []).map((a) => ({
@@ -97,6 +107,7 @@ export class UsersService {
       }));
     }
 
+    user.addresses = user.addresses || [];
     user.addresses.push(newAddress);
     user.markModified('addresses');
     await user.save();
@@ -109,7 +120,7 @@ export class UsersService {
     updatedFields: any,
   ): Promise<any[]> {
     const user = await this.userModel.findOne({ email }).exec();
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) return [];
 
     user.addresses = (user.addresses || []).map((a) => {
       if (a.id === addressId) {
@@ -128,7 +139,7 @@ export class UsersService {
 
   async deleteAddress(email: string, addressId: string): Promise<any[]> {
     const user = await this.userModel.findOne({ email }).exec();
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) return [];
 
     user.addresses = (user.addresses || []).filter((a) => a.id !== addressId);
     user.markModified('addresses');
@@ -177,7 +188,7 @@ export class UsersService {
     const cleaned = (phone || '').trim().replace(/\D/g, '');
     return this.userModel.findOne({
       $or: [{ phone: cleaned }, { phone: `+91${cleaned}` }, { phone: `91${cleaned}` }]
-    }).exec();
+    }).select('+password').exec();
   }
 
   async setPhoneOtp(phone: string, otp: string, expires: Date): Promise<void> {

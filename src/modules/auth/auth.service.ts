@@ -20,7 +20,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private mailService: MailService,
-  ) {}
+  ) { }
 
   // ─── Register ───────────────────────────────────────────────────────────────
   async register(registerDto: RegisterDto) {
@@ -148,39 +148,66 @@ export class AuthService {
 
     try {
       await this.mailService.sendPasswordResetEmail(user.email, user.name, resetUrl);
-    } catch (_) {}
+    } catch (_) { }
 
     return { message: 'If that email exists, a reset link has been sent' };
   }
 
   // ─── OTP-based Forgot Password Flow ───────────────────────────────────────
-  async requestOtp(email: string) {
-    const user = await this.usersService.findByEmail(email);
+  async requestOtp(identifier: string) {
+    if (!identifier) {
+      throw new BadRequestException('Please enter your email or mobile number');
+    }
+    const cleanId = identifier.trim().toLowerCase();
+    let user = await this.usersService.findByEmail(cleanId);
+    if (!user && /^\d{10}$/.test(cleanId)) {
+      user = await this.usersService.findByPhone(cleanId);
+    }
     if (!user) {
-      // Return success even if user not found (security best practice)
-      return { success: true, message: 'If that email exists, an OTP has been sent' };
+      return { success: true, message: 'If an account exists with this email or mobile, an OTP has been sent.' };
+    }
+
+    const targetEmail = user.email;
+    if (!targetEmail || targetEmail.endsWith('@santharisingh.com')) {
+      throw new BadRequestException('No email address registered for this account. Please create an account or contact support.');
     }
 
     // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
-    await this.usersService.setOtp(email, otp, expires);
+    await this.usersService.setOtp(targetEmail, otp, expires);
 
     // CRITICAL: Log the OTP to the console so developers and admins can see it instantly!
-    console.log(`🔑 [OTP SYSTEM] OTP for user "${email}" is: [${otp}]`);
+    console.log(`🔑 [OTP SYSTEM] Password Reset OTP for user "${targetEmail}" (phone: ${user.phone}) is: [${otp}]`);
 
     try {
-      await this.mailService.sendOtpEmail(user.email, user.name, otp);
-    } catch (_) {
-      // Do not block if email sending fails during local dev
+      await this.mailService.sendOtpEmail(targetEmail, user.name || 'Valued Customer', otp);
+    } catch (err) {
+      console.warn('Mail send failed during requestOtp:', err.message);
     }
 
-    return { success: true, message: 'If that email exists, an OTP has been sent' };
+    const maskedEmail = targetEmail.replace(/(.{2})(.*)(?=@)/, '$1***');
+    return {
+      success: true,
+      message: `A 6-digit OTP code has been sent to ${maskedEmail}`,
+      email: targetEmail,
+    };
   }
 
-  async resetPasswordWithOtp(email: string, otp: string, newPassword: string) {
-    const user = await this.usersService.findByOtp(email, otp);
+  async resetPasswordWithOtp(identifier: string, otp: string, newPassword: string) {
+    if (!identifier || !otp || !newPassword) {
+      throw new BadRequestException('Please provide email, OTP, and new password');
+    }
+    const cleanId = identifier.trim().toLowerCase();
+    let user = await this.usersService.findByOtp(cleanId, otp);
+    if (!user && /^\d{10}$/.test(cleanId)) {
+      const phoneUser = await this.usersService.findByPhone(cleanId);
+      if (phoneUser && phoneUser.email) {
+        user = await this.usersService.findByOtp(phoneUser.email, otp);
+      }
+    }
+
     if (!user) {
       throw new BadRequestException('Invalid or expired OTP code');
     }
@@ -210,7 +237,109 @@ export class AuthService {
     return this.usersService.findById(userId);
   }
 
-  // ─── Mobile Number OTP Auth Handlers ─────────────────────────────────────────
+  // ─── Mobile Number + Password Auth Handlers ─────────────────────────────────
+  async phoneRegister(data: { name: string; phone: string; password: string; email?: string }) {
+    const cleaned = (data.phone || '').trim().replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      throw new BadRequestException('Please enter a valid 10-digit mobile number');
+    }
+    if (!data.name || data.name.trim().length < 2) {
+      throw new BadRequestException('Please enter your full name');
+    }
+    if (!data.password || data.password.length < 4) {
+      throw new BadRequestException('Password must be at least 4 characters');
+    }
+
+    let user = await this.usersService.findByPhone(cleaned);
+    if (user && user.password) {
+      throw new ConflictException('Mobile number is already registered. Please login.');
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const email = data.email && data.email.trim() !== '' ? data.email.trim().toLowerCase() : `${cleaned}@santharisingh.com`;
+
+    if (!user) {
+      user = await this.usersService.create({
+        name: data.name.trim(),
+        phone: cleaned,
+        password: hashedPassword,
+        email: email,
+        role: 'user',
+        isActive: true,
+      } as any);
+    } else {
+      user.name = data.name.trim();
+      user.password = hashedPassword;
+      if (data.email) user.email = data.email.trim().toLowerCase();
+      await user.save();
+    }
+
+    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
+    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return {
+      success: true,
+      message: 'Account created successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        avatar: user.avatar,
+      },
+      token: tokens.accessToken,
+      ...tokens,
+    };
+  }
+
+  async phoneLogin(data: { phone: string; password: string }) {
+    const cleaned = (data.phone || '').trim().replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      throw new BadRequestException('Please enter a valid 10-digit mobile number');
+    }
+    if (!data.password) {
+      throw new BadRequestException('Please enter your password');
+    }
+
+    const user = await this.usersService.findByPhone(cleaned);
+    if (!user) {
+      throw new UnauthorizedException('Mobile number not registered. Please create an account.');
+    }
+
+    if (!user.password) {
+      throw new UnauthorizedException('No password set for this mobile number. Please create an account.');
+    }
+
+    const isPasswordValid = await bcrypt.compare(data.password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Incorrect password. Please try again.');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
+    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return {
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        avatar: user.avatar,
+      },
+      token: tokens.accessToken,
+      ...tokens,
+    };
+  }
+
+  // ─── Mobile Number OTP Auth Handlers (Legacy) ─────────────────────────────────────────
   async sendPhoneOtp(rawPhone: string) {
     const cleaned = (rawPhone || '').trim().replace(/\D/g, '');
     if (cleaned.length !== 10) {
@@ -304,7 +433,7 @@ export class AuthService {
   async completePhoneRegistration(rawPhone: string, name: string, email: string) {
     const cleaned = (rawPhone || '').trim().replace(/\D/g, '');
     let user = await this.usersService.findByPhone(cleaned);
-    
+
     if (!user) {
       user = await this.usersService.createPhoneUser({ phone: cleaned, name, email });
     } else {
@@ -352,5 +481,11 @@ export class AuthService {
     ]);
 
     return { accessToken, refreshToken };
+  }
+}
+      }),
+    ]);
+
+return { accessToken, refreshToken };
   }
 }

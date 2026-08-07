@@ -20,7 +20,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   // POST /api/auth/register
   @Post('register')
@@ -73,6 +73,20 @@ export class AuthController {
     return this.authService.requestOtp(body.email);
   }
 
+  // POST /api/auth/phone/register
+  @Post('phone/register')
+  @HttpCode(HttpStatus.OK)
+  async phoneRegister(@Body() body: { name: string; phone: string; password: string; email?: string }) {
+    return this.authService.phoneRegister(body);
+  }
+
+  // POST /api/auth/phone/login
+  @Post('phone/login')
+  @HttpCode(HttpStatus.OK)
+  async phoneLogin(@Body() body: { phone: string; password: string }) {
+    return this.authService.phoneLogin(body);
+  }
+
   // POST /api/auth/phone/send-otp
   @Post('phone/send-otp')
   @HttpCode(HttpStatus.OK)
@@ -100,5 +114,14 @@ export class AuthController {
   async getMe(@Request() req) {
     return this.authService.getMe(req.user.userId);
   }
+}
+
+
+// GET /api/auth/me
+@Get('me')
+@UseGuards(JwtAuthGuard)
+async getMe(@Request() req) {
+  return this.authService.getMe(req.user.userId);
+}
 }
 

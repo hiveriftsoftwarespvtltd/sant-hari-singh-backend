@@ -6,6 +6,7 @@ import {
   Query,
   Param,
   Patch,
+  Delete,
   UseGuards,
   Request,
   HttpCode,
@@ -81,7 +82,7 @@ export class OrdersController {
     if (phone) {
       const all = await this.ordersService.findAll();
       const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
-      const filtered = all.filter(o => {
+      const filtered = all.filter((o: any) => {
         const p1 = (o.shippingAddress?.phone || '').replace(/[^0-9]/g, '');
         const p2 = (o.user?.phone || '').replace(/[^0-9]/g, '');
         return (cleanPhone && (p1.includes(cleanPhone) || p2.includes(cleanPhone)));
@@ -99,10 +100,15 @@ export class OrdersController {
   // POST /api/orders/update-status — Admin update order status
   @Post('update-status')
   async updateStatus(@Body() body: { orderId: string; status: string }) {
-    const saved = await this.ordersService.updateStatus(body.orderId, {
-      status: body.status,
-    });
-    return { success: true, order: this.mapOrder(saved) };
+    try {
+      const saved = await this.ordersService.updateStatus(body.orderId, {
+        status: body.status,
+      });
+      return { success: true, order: this.mapOrder(saved) };
+    } catch (err) {
+      console.error('API update-status ERROR:', err);
+      throw err;
+    }
   }
 
   // POST /api/orders/razorpay/create-order — Initiate payment
@@ -148,5 +154,18 @@ export class OrdersController {
   ) {
     const saved = await this.ordersService.updateStatus(id, body);
     return this.mapOrder(saved);
+  }
+
+  // POST /api/orders/bulk-delete — Bulk delete orders by IDs array
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkDelete(@Body() body: { ids: string[] }) {
+    return this.ordersService.deleteBulkOrders(body.ids || []);
+  }
+
+  // DELETE /api/orders/:id — Delete single order by ID
+  @Delete(':id')
+  async deleteOrder(@Param('id') id: string) {
+    return this.ordersService.deleteOrder(id);
   }
 }
