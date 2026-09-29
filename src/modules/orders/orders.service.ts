@@ -340,8 +340,12 @@ export class OrdersService implements OnModuleInit {
       : 'https://test.ccavenue.com/transaction/transaction.do?command=initiateTransaction';
 
     // Backend redirect URL
-    const backendUrl = process.env.SERVER_BASE_URL || 'https://santharisingh.com/santharisingh_api';
+    // Old Live URL (Commented out):
+    // const backendUrl = process.env.SERVER_BASE_URL || 'https://santharisingh.com/santharisingh_api';
+    const rawBackendUrl = process.env.SERVER_BASE_URL || 'https://api.santharisingh.com/api';
+    const backendUrl = rawBackendUrl.replace(/\/api\/?$/, '');
     const redirectUrl = `${backendUrl}/api/orders/ccavenue/redirect`;
+
 
     const billingAddress = orderPayload.shippingAddress || {};
     const params: Record<string, string> = {

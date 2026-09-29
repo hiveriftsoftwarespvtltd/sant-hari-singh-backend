@@ -9,7 +9,7 @@ export class CouponsService {
     @InjectModel(Coupon.name)
     private readonly couponModel: Model<CouponDocument>,
   ) {}
-
+  
   async findAll(): Promise<Coupon[]> {
     return this.couponModel.find().exec();
   }

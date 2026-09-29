@@ -62,6 +62,7 @@ export class AuthService {
   }
 
   // ─── Login ──────────────────────────────────────────────────────────────────
+
   async login(loginDto: LoginDto) {
     try {
       const user = await this.usersService.findByEmail(loginDto.email);
@@ -109,6 +110,7 @@ export class AuthService {
   }
 
   // ─── Admin Login ─────────────────────────────────────────────────────────────
+
   async adminLogin(loginDto: LoginDto) {
     const user = await this.usersService.findByEmail(loginDto.email);
     if (!user) {
@@ -141,6 +143,8 @@ export class AuthService {
   }
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
+  
+  
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
     return { message: 'Logged out successfully' };
@@ -324,7 +328,6 @@ export class AuthService {
       ...tokens,
     };
   }
-
   async phoneLogin(data: { phone: string; password: string }) {
     const cleaned = (data.phone || '').trim().replace(/\D/g, '');
     if (cleaned.length !== 10) {

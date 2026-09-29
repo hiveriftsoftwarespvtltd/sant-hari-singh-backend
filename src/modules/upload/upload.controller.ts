@@ -53,7 +53,8 @@ export class UploadController {
     if (!file) throw new BadRequestException('No file uploaded');
     const baseUrl = this.configService.get<string>(
       'BACKEND_URL',
-      'https://santharisingh.com/santharisingh_api',
+      // Old Live URL (Commented out): 'https://santharisingh.com/santharisingh_api'
+      'https://api.santharisingh.com',
     );
     return {
       success: true,
@@ -96,7 +97,8 @@ export class UploadController {
     if (!files || files.length === 0) throw new BadRequestException('No files uploaded');
     const baseUrl = this.configService.get<string>(
       'BACKEND_URL',
-      'https://santharisingh.com/santharisingh_api',
+      // Old Live URL (Commented out): 'https://santharisingh.com/santharisingh_api'
+      'https://api.santharisingh.com',
     );
     return {
       urls: files.map((f) => ({
@@ -143,8 +145,8 @@ export class UploadLegacyController {
     if (!file) throw new BadRequestException('No file uploaded');
     const baseUrl = this.configService.get<string>(
       'BACKEND_URL',
-    
-      'https://santharisingh.com/santharisingh_api',
+      // Old Live URL (Commented out): 'https://santharisingh.com/santharisingh_api'
+      'https://api.santharisingh.com',
     );
     return {
       success: true,

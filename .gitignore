@@ -25,5 +25,8 @@ yarn-error.log*
 *.sln
 *.sw?
 
+*.code-workspace
+
 # Uploads
 /uploads
+
