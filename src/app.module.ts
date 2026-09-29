@@ -33,7 +33,9 @@ import { ShiprocketModule } from './modules/shiprocket/shiprocket.module';
       serveRoot: '/uploads',
       serveStaticOptions: {
         index: false,
+        fallthrough: true,
       },
+      renderPath: '/api/static-asset-fallback',
     }),
 
     // MongoDB Connection
