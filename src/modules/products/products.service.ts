@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 import { Product, ProductDocument } from './schemas/product.schema';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 
@@ -131,7 +131,15 @@ export class ProductsService {
   }
 
   async remove(id: string): Promise<{ message: string }> {
-    const product = await this.productModel.findByIdAndDelete(id);
+    let product: any = null;
+    if (isValidObjectId(id)) {
+      product = await this.productModel.findByIdAndDelete(id).exec();
+    }
+    if (!product) {
+      product = await this.productModel.findOneAndDelete({
+        $or: [{ id: id }, { slug: id }]
+      }).exec();
+    }
     if (!product) throw new NotFoundException('Product not found');
     return { message: 'Product deleted successfully' };
   }

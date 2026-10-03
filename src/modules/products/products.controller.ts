@@ -186,8 +186,17 @@ export class ProductsController {
   @Post('delete')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  async removeAlias(@Body() body: { id?: string; _id?: string }) {
-    const id = body.id || body._id;
+  async removeAlias(@Body() body: { id?: string; _id?: string }, @Query('id') queryId?: string) {
+    const id = body?.id || body?._id || queryId;
+    if (!id) throw new BadRequestException('Product ID is required');
+    return this.productsService.remove(id);
+  }
+
+  // POST /api/products/delete/:id — Admin only alias with path param
+  @Post('delete/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async removeAliasParam(@Param('id') id: string) {
     if (!id) throw new BadRequestException('Product ID is required');
     return this.productsService.remove(id);
   }
