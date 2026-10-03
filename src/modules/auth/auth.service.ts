@@ -5,6 +5,7 @@ import type { StringValue } from 'ms';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { UsersService } from '../users/users.service';
+import { UserRole } from '../users/schemas/user.schema';
 import { MailService } from '../mail/mail.service';
 import {
   RegisterDto,
@@ -24,66 +25,108 @@ export class AuthService {
 
   // ─── Register ───────────────────────────────────────────────────────────────
   async register(registerDto: RegisterDto) {
-    const existingUser = await this.usersService.findByEmail(registerDto.email);
-    if (existingUser) {
-      throw new ConflictException('Email already registered');
-    }
-
-    const hashedPassword = await bcrypt.hash(registerDto.password, 12);
-    const user = await this.usersService.create({
-      ...registerDto,
-      password: hashedPassword,
-    });
-
-    // Send welcome email
     try {
-      await this.mailService.sendWelcomeEmail(user.email, user.name);
-    } catch (_) {
-      // Non-blocking — don't fail registration if email fails
+      const email = registerDto.email?.trim()?.toLowerCase();
+      const existingUser = await this.usersService.findByEmail(email);
+      if (existingUser) {
+        throw new ConflictException('This email is already registered. Please login.');
+      }
+
+      if (registerDto.phone) {
+        const cleanedPhone = registerDto.phone.trim().replace(/\D/g, '');
+        if (cleanedPhone) {
+          const existingPhone = await this.usersService.findByPhone(cleanedPhone);
+          if (existingPhone && existingPhone.password) {
+            throw new ConflictException('This mobile number is already registered. Please login.');
+          }
+        }
+      }
+
+      const hashedPassword = await bcrypt.hash(registerDto.password, 12);
+      const user = await this.usersService.create({
+        ...registerDto,
+        email,
+        password: hashedPassword,
+        role: UserRole.USER,
+        isActive: true,
+      } as any);
+
+      // Non-blocking welcome email (do not await, so SMTP never blocks or crashes registration)
+      this.mailService.sendWelcomeEmail(user.email, user.name).catch((err) => {
+        console.warn('Welcome email failed (non-blocking):', err?.message || err);
+      });
+
+      const tokens = await this.generateTokens(user._id.toString(), user.email, user.role || 'user');
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+      return {
+        success: true,
+        message: 'Registration successful',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          avatar: user.avatar,
+          phone: user.phone,
+        },
+        token: tokens.accessToken,
+        ...tokens,
+      };
+    } catch (error: any) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+      if (error?.code === 11000) {
+        const field = Object.keys(error?.keyPattern || {})[0] || 'Email or Phone';
+        throw new ConflictException(`This ${field} is already registered. Please login.`);
+      }
+      console.error('Registration Error:', error);
+      throw new BadRequestException(error?.message || 'Registration failed. Please check your details and try again.');
     }
-
-    const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
-    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
-
-    return {
-      success: true,
-      message: 'Registration successful',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        phone: user.phone,
-      },
-      token: tokens.accessToken,
-      ...tokens,
-    };
   }
 
-  // ─── Login ──────────────────────────────────────────────────────────────────
+  // ─── Login (Supports Email OR 10-digit Phone) ──────────────────────────────
 
   async login(loginDto: LoginDto) {
     try {
-      const user = await this.usersService.findByEmail(loginDto.email);
+      const emailOrPhone = loginDto.email?.trim();
+      if (!emailOrPhone) {
+        throw new BadRequestException('Email or mobile number is required');
+      }
+
+      // Check if user entered phone number instead of email
+      const isPhone = /^[0-9]{10}$/.test(emailOrPhone.replace(/\D/g, ''));
+      let user: any = null;
+      if (isPhone) {
+        user = await this.usersService.findByPhone(emailOrPhone.replace(/\D/g, ''));
+      }
       if (!user) {
-        throw new UnauthorizedException('Invalid email or password');
+        user = await this.usersService.findByEmail(emailOrPhone.toLowerCase());
+      }
+
+      if (!user) {
+        throw new UnauthorizedException('Invalid email/mobile number or password');
       }
 
       if (!user.password) {
-        throw new UnauthorizedException('Invalid email or password');
+        throw new UnauthorizedException('No password set for this account. Please create an account or reset password.');
       }
 
       const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
       if (!isPasswordValid) {
-        throw new UnauthorizedException('Invalid email or password');
+        throw new UnauthorizedException('Invalid email/mobile number or password');
       }
 
       if (!user.isActive) {
         throw new UnauthorizedException('Account is deactivated');
       }
 
-      const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
+      const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role || 'user');
       await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
 
       return {
@@ -100,11 +143,15 @@ export class AuthService {
         token: tokens.accessToken,
         ...tokens,
       };
-    } catch (error) {
-      console.error('❌ Login Error:', error);
-      if (error instanceof UnauthorizedException || error instanceof BadRequestException || error instanceof ConflictException) {
+    } catch (error: any) {
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof BadRequestException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
+      console.error('❌ Login Error:', error);
       throw new BadRequestException(`Login failed: ${error.message || error}`);
     }
   }
@@ -112,34 +159,44 @@ export class AuthService {
   // ─── Admin Login ─────────────────────────────────────────────────────────────
 
   async adminLogin(loginDto: LoginDto) {
-    const user = await this.usersService.findByEmail(loginDto.email);
-    if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+    try {
+      const email = loginDto.email?.trim()?.toLowerCase();
+      const user = await this.usersService.findByEmail(email);
+      if (!user) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      if (!user.password) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      const roleStr = (user.role || '').toLowerCase();
+      if (roleStr !== 'admin') {
+        throw new UnauthorizedException('Access denied: Admin only');
+      }
+      const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+      return {
+        success: true,
+        message: 'Admin login successful',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+        token: tokens.accessToken,
+        ...tokens,
+      };
+    } catch (error: any) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
+      console.error('Admin Login Error:', error);
+      throw new BadRequestException('Admin login failed: ' + (error?.message || error));
     }
-    if (!user.password) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-    if (user.role !== 'admin') {
-      throw new UnauthorizedException('Access denied: Admin only');
-    }
-    const tokens = await this.generateTokens(user._id.toString(), user.email, user.role);
-    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
-    return {
-      success: true,
-      message: 'Admin login successful',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
-      token: tokens.accessToken,
-      ...tokens,
-    };
   }
 
   // ─── Logout ─────────────────────────────────────────────────────────────────
@@ -275,103 +332,143 @@ export class AuthService {
 
   // ─── Mobile Number + Password Auth Handlers ─────────────────────────────────
   async phoneRegister(data: { name: string; phone: string; password: string; email?: string }) {
-    const cleaned = (data.phone || '').trim().replace(/\D/g, '');
-    if (cleaned.length !== 10) {
-      throw new BadRequestException('Please enter a valid 10-digit mobile number');
-    }
-    if (!data.name || data.name.trim().length < 2) {
-      throw new BadRequestException('Please enter your full name');
-    }
-    if (!data.password || data.password.length < 4) {
-      throw new BadRequestException('Password must be at least 4 characters');
-    }
+    try {
+      const cleaned = (data.phone || '').trim().replace(/\D/g, '');
+      if (cleaned.length !== 10) {
+        throw new BadRequestException('Please enter a valid 10-digit mobile number');
+      }
+      if (!data.name || data.name.trim().length < 2) {
+        throw new BadRequestException('Please enter your full name');
+      }
+      if (!data.password || data.password.length < 4) {
+        throw new BadRequestException('Password must be at least 4 characters');
+      }
 
-    let user = await this.usersService.findByPhone(cleaned);
-    if (user && user.password) {
-      throw new ConflictException('Mobile number is already registered. Please login.');
+      let user = await this.usersService.findByPhone(cleaned);
+      if (user && user.password) {
+        throw new ConflictException('This mobile number is already registered. Please login.');
+      }
+
+      const hashedPassword = await bcrypt.hash(data.password, 12);
+      let email = data.email && data.email.trim() !== '' ? data.email.trim().toLowerCase() : `${cleaned}@santharisingh.com`;
+
+      if (!user) {
+        // Check if generated/provided email exists for another user
+        const existingEmailUser = await this.usersService.findByEmail(email);
+        if (existingEmailUser) {
+          if (!data.email || data.email.trim() === '') {
+            email = `${cleaned}_${Date.now()}@santharisingh.com`;
+          } else {
+            throw new ConflictException('This email is already registered with another account. Please use a different email or login.');
+          }
+        }
+
+        user = await this.usersService.create({
+          name: data.name.trim(),
+          phone: cleaned,
+          password: hashedPassword,
+          email: email,
+          role: 'user',
+          isActive: true,
+        } as any);
+      } else {
+        user.name = data.name.trim();
+        user.password = hashedPassword;
+        if (data.email && data.email.trim() !== '') {
+          user.email = data.email.trim().toLowerCase();
+        }
+        await user.save();
+      }
+
+      const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role || 'user');
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+      return {
+        success: true,
+        message: 'Account created successfully',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          avatar: user.avatar,
+        },
+        token: tokens.accessToken,
+        ...tokens,
+      };
+    } catch (error: any) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+      if (error?.code === 11000) {
+        throw new ConflictException('An account with this mobile number or email already exists. Please login.');
+      }
+      console.error('Phone Register Error:', error);
+      throw new BadRequestException(error?.message || 'Could not create account. Please try again.');
     }
-
-    const hashedPassword = await bcrypt.hash(data.password, 12);
-    const email = data.email && data.email.trim() !== '' ? data.email.trim().toLowerCase() : `${cleaned}@santharisingh.com`;
-
-    if (!user) {
-      user = await this.usersService.create({
-        name: data.name.trim(),
-        phone: cleaned,
-        password: hashedPassword,
-        email: email,
-        role: 'user',
-        isActive: true,
-      } as any);
-    } else {
-      user.name = data.name.trim();
-      user.password = hashedPassword;
-      if (data.email) user.email = data.email.trim().toLowerCase();
-      await user.save();
-    }
-
-    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
-    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
-
-    return {
-      success: true,
-      message: 'Account created successfully',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        avatar: user.avatar,
-      },
-      token: tokens.accessToken,
-      ...tokens,
-    };
   }
+
   async phoneLogin(data: { phone: string; password: string }) {
-    const cleaned = (data.phone || '').trim().replace(/\D/g, '');
-    if (cleaned.length !== 10) {
-      throw new BadRequestException('Please enter a valid 10-digit mobile number');
-    }
-    if (!data.password) {
-      throw new BadRequestException('Please enter your password');
-    }
+    try {
+      const cleaned = (data.phone || '').trim().replace(/\D/g, '');
+      if (cleaned.length !== 10) {
+        throw new BadRequestException('Please enter a valid 10-digit mobile number');
+      }
+      if (!data.password) {
+        throw new BadRequestException('Please enter your password');
+      }
 
-    const user = await this.usersService.findByPhone(cleaned);
-    if (!user) {
-      throw new UnauthorizedException('Mobile number not registered. Please create an account.');
+      const user = await this.usersService.findByPhone(cleaned);
+      if (!user) {
+        throw new UnauthorizedException('Mobile number not registered. Please create an account.');
+      }
+
+      if (!user.password) {
+        throw new UnauthorizedException('No password set for this mobile number. Please create an account or reset password.');
+      }
+
+      const isPasswordValid = await bcrypt.compare(data.password, user.password);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Incorrect password. Please try again.');
+      }
+
+      if (!user.isActive) {
+        throw new UnauthorizedException('Account is deactivated');
+      }
+
+      const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role || 'user');
+      await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+      return {
+        success: true,
+        message: 'Login successful',
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          avatar: user.avatar,
+        },
+        token: tokens.accessToken,
+        ...tokens,
+      };
+    } catch (error: any) {
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof BadRequestException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      console.error('Phone Login Error:', error);
+      throw new BadRequestException(error?.message || 'Login failed. Please try again.');
     }
-
-    if (!user.password) {
-      throw new UnauthorizedException('No password set for this mobile number. Please create an account.');
-    }
-
-    const isPasswordValid = await bcrypt.compare(data.password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Incorrect password. Please try again.');
-    }
-
-    if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    const tokens = await this.generateTokens(user._id.toString(), user.email || '', user.role);
-    await this.usersService.updateRefreshToken(user._id.toString(), tokens.refreshToken);
-
-    return {
-      success: true,
-      message: 'Login successful',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        avatar: user.avatar,
-      },
-      token: tokens.accessToken,
-      ...tokens,
-    };
   }
 
   // ─── Mobile Number OTP Auth Handlers (Legacy) ─────────────────────────────────────────

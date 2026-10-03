@@ -5,6 +5,8 @@ import {
   Body,
   Query,
   BadRequestException,
+  ConflictException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
@@ -39,54 +41,68 @@ export class CustomersController {
   // POST /api/customers/register — Public
   @Post('register')
   async register(@Body() body: any) {
-    const { firstName, lastName, email, phone, password, city } = body;
-    if (!email || !password || !firstName) {
-      throw new BadRequestException('Required fields missing');
-    }
-
-    const existing = await this.usersService.findByEmail(email);
-    if (existing) {
-      if (existing.isActive) {
-        throw new BadRequestException('Email already registered');
-      }
-      // If user exists but is not active (unverified registration), we allow updating details and sending a new OTP
-      const hashedPassword = await bcrypt.hash(password, 12);
-      existing.name = `${firstName} ${lastName || ''}`.trim();
-      existing.password = hashedPassword;
-      existing.phone = phone;
-      await existing.save();
-    } else {
-      const hashedPassword = await bcrypt.hash(password, 12);
-      await this.usersService.create({
-        name: `${firstName} ${lastName || ''}`.trim(),
-        email,
-        password: hashedPassword,
-        phone,
-        isActive: false, // Inactive until verified via OTP
-      } as any);
-    }
-
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes validity
-    await this.usersService.setOtp(email, otp, expires);
-
-    // CRITICAL: Log the OTP to the console so developers and admins can see it instantly!
-    console.log(`🔑 [REGISTRATION OTP SYSTEM] OTP for user "${email}" is: [${otp}]`);
-
-    // Send email with verification OTP code
-    const fullName = `${firstName} ${lastName || ''}`.trim();
     try {
-      await this.mailService.sendRegistrationOtpEmail(email, fullName, otp);
-    } catch (err) {
-      console.error(`Failed to send registration email to ${email}:`, err.message);
-    }
+      const { firstName, lastName, email, phone, password, city } = body;
+      if (!email || !password || !firstName) {
+        throw new BadRequestException('Required fields missing');
+      }
 
-    return {
-      success: true,
-      pendingVerification: true,
-      email,
-    };
+      const cleanEmail = email.trim().toLowerCase();
+      const existing = await this.usersService.findByEmail(cleanEmail);
+      if (existing) {
+        if (existing.isActive) {
+          throw new BadRequestException('Email already registered. Please login.');
+        }
+        // If user exists but is not active (unverified registration), allow updating details and sending a new OTP
+        const hashedPassword = await bcrypt.hash(password, 12);
+        existing.name = `${firstName} ${lastName || ''}`.trim();
+        existing.password = hashedPassword;
+        existing.phone = phone;
+        await existing.save();
+      } else {
+        const hashedPassword = await bcrypt.hash(password, 12);
+        await this.usersService.create({
+          name: `${firstName} ${lastName || ''}`.trim(),
+          email: cleanEmail,
+          password: hashedPassword,
+          phone,
+          isActive: false, // Inactive until verified via OTP
+        } as any);
+      }
+
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes validity
+      await this.usersService.setOtp(cleanEmail, otp, expires);
+
+      // CRITICAL: Log the OTP to the console so developers and admins can see it instantly!
+      console.log(`🔑 [REGISTRATION OTP SYSTEM] OTP for user "${cleanEmail}" is: [${otp}]`);
+
+      // Send email with verification OTP code (non-blocking so SMTP delays or errors never crash registration)
+      const fullName = `${firstName} ${lastName || ''}`.trim();
+      this.mailService.sendRegistrationOtpEmail(cleanEmail, fullName, otp).catch((err: any) => {
+        console.warn(`Failed to send registration email to ${cleanEmail}:`, err?.message || err);
+      });
+
+      return {
+        success: true,
+        pendingVerification: true,
+        email: cleanEmail,
+      };
+    } catch (error: any) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ConflictException ||
+        error instanceof UnauthorizedException
+      ) {
+        throw error;
+      }
+      if (error?.code === 11000) {
+        throw new ConflictException('An account with this email or mobile number already exists. Please login.');
+      }
+      console.error('Customer Register Error:', error);
+      throw new BadRequestException(error?.message || 'Registration failed. Please check your details and try again.');
+    }
   }
 
   // POST /api/customers/verify-registration — Public
