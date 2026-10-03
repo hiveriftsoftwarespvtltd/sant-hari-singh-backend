@@ -19,8 +19,8 @@ export class User {
   @Prop({ required: false, select: false, default: null })
   password: string;
 
-  @Prop({ default: UserRole.USER, enum: UserRole })
-  role: UserRole;
+  @Prop({ default: 'user', type: String })
+  role: string;
 
   @Prop({ default: true })
   isActive: boolean;
